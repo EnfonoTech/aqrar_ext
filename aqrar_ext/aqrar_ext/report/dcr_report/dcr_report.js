@@ -2,7 +2,7 @@
 // Copyright (c) 2026, Aravind R and contributors
 // For license information, please see license.txt
 
-//Filters for DCR Report
+//Filters for DCR Report 
 frappe.query_reports["DCR Report"] = {
     "filters": [
         {
