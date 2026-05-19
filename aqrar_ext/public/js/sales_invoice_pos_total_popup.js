@@ -116,7 +116,7 @@ function aqrar_show_pos_total_popup(frm) {
 		if (frm.doc.pos_profile || !frm.doc.payments || frm.doc.payments.length === 0) {
 			if (!frm.doc.pos_profile) {
 				frappe.call({
-					method: "aqrar_ext.api.sales_invoice_payment.get_payment_modes_with_account",
+					method: "aqrar_ext.api.sales_invoice.get_payment_modes_with_account",
 					args: { company: frm.doc.company },
 					callback: function (res) {
 						const modes = res.message || [];
@@ -128,8 +128,10 @@ function aqrar_show_pos_total_popup(frm) {
 							return;
 						}
 
+						// Only show Cash mode in the payment popup
+						const cash_mode = modes.filter(function (m) { return m === "Cash"; });
 						frm.clear_table("payments");
-						modes.forEach(function (mode) {
+						cash_mode.forEach(function (mode) {
 							const row = frm.add_child("payments");
 							row.mode_of_payment = mode;
 						});
@@ -166,7 +168,7 @@ function aqrar_show_pos_total_popup(frm) {
 						profile_payments.forEach((p) => (default_by_mode[p.mode_of_payment] = p.default));
 
 						frappe.call({
-							method: "aqrar_ext.api.sales_invoice_payment.get_payment_modes_with_account",
+							method: "aqrar_ext.api.sales_invoice.get_payment_modes_with_account",
 							args: { company: frm.doc.company, mode_list: mode_list },
 							callback: function (res) {
 								const valid_modes = res.message || [];
@@ -178,8 +180,10 @@ function aqrar_show_pos_total_popup(frm) {
 									return;
 								}
 
+								// Only show Cash mode in the payment popup
+								const cash_modes = valid_modes.filter(function (m) { return m === "Cash"; });
 								frm.clear_table("payments");
-								valid_modes.forEach(function (mode) {
+								cash_modes.forEach(function (mode) {
 									const row = frm.add_child("payments");
 									row.mode_of_payment = mode;
 									row.default = default_by_mode[mode] || 0;
@@ -503,7 +507,7 @@ function aqrar_render_dialog(frm) {
 					// If user submitted, create Payment Entries from the popup amounts
 					if (submit && frm.doc.docstatus === 1) {
 						frappe.call({
-							method: "aqrar_ext.api.sales_invoice_payment.create_pos_payments_for_invoice",
+							method: "aqrar_ext.api.sales_invoice.create_pos_payments_for_invoice",
 							args: {
 								sales_invoice: frm.doc.name,
 								payments: JSON.stringify(payments_payload),
