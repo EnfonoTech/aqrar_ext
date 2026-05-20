@@ -2,6 +2,7 @@ import json
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 
 @frappe.whitelist()
@@ -149,3 +150,135 @@ def create_pos_payments_for_invoice(sales_invoice: str, payments: str | list):
 		created.append(pe.name)
 
 	return created
+
+
+def auto_create_payment_entry_on_submit(doc, method):
+	if doc.is_pos:
+		return
+
+	if doc.is_return:
+		return
+
+	if flt(doc.outstanding_amount) <= 0:
+		return
+
+	if not doc.custom_payment_mode:
+		return
+
+	if flt(doc.grand_total) <= 0:
+		return
+
+	payment_mode = doc.custom_payment_mode
+
+	# Cash is handled by the frontend popup (sales_invoice_pos_total_popup.js)
+	if payment_mode == "Cash":
+		return
+
+	elif payment_mode == "Card":
+		partial = flt(doc.custom_partial_payment_amount or 0)
+		if partial > 0 and partial <= flt(doc.grand_total):
+			pay_amount = partial
+		else:
+			pay_amount = flt(doc.grand_total)
+		_create_and_submit_pe(doc, "Card", pay_amount)
+
+	elif payment_mode == "Credit":
+		partial = flt(doc.custom_partial_payment_amount or 0)
+		if partial > 0 and partial <= flt(doc.grand_total):
+			_create_and_submit_pe(doc, "Cash", partial)
+
+
+def _create_and_submit_pe(doc, mode_of_payment, amount):
+	amount = flt(amount)
+	if amount <= 0:
+		return
+
+	# Re-fetch outstanding from DB to avoid stale in-memory value
+	outstanding = flt(frappe.db.get_value("Sales Invoice", doc.name, "outstanding_amount"))
+	if outstanding <= 0:
+		return
+	if amount - outstanding > 0.5:
+		amount = outstanding
+
+	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+	from erpnext.accounts.doctype.sales_invoice.sales_invoice import get_bank_cash_account
+
+	try:
+		bank_cash = get_bank_cash_account(mode_of_payment, doc.company)
+	except Exception:
+		frappe.log_error(
+			title="Auto Payment Entry: Missing Account",
+			message=_(
+				"No default account found for Mode of Payment '{0}' in company '{1}'. "
+				"Invoice {2} submitted without Payment Entry."
+			).format(mode_of_payment, doc.company, doc.name),
+		)
+		frappe.msgprint(
+			_(
+				"Payment Entry was not created. No default account configured for "
+				"Mode of Payment '{0}' in company '{1}'."
+			).format(mode_of_payment, doc.company),
+			alert=True,
+		)
+		return
+
+	try:
+		pe = get_payment_entry("Sales Invoice", doc.name)
+		if not pe.references:
+			return
+		pe.mode_of_payment = mode_of_payment
+		pe.paid_to = bank_cash.get("account")
+
+		if pe.paid_to:
+			acc = frappe.get_cached_value(
+				"Account", pe.paid_to, ["account_currency", "account_type"], as_dict=True
+			)
+			if acc:
+				pe.paid_to_account_currency = acc.account_currency
+				pe.paid_to_account_type = acc.account_type
+
+		pe.paid_amount = amount
+		pe.received_amount = amount
+		pe.references[0].allocated_amount = amount
+		pe.reference_no = doc.name
+		pe.reference_date = doc.posting_date
+
+		pe.insert()
+		pe.submit()
+
+		frappe.msgprint(
+			_("Payment Entry {0} created against {1} for {2}").format(
+				pe.name, doc.name, frappe.utils.fmt_money(amount, currency=doc.currency)
+			),
+			alert=True,
+		)
+
+	except frappe.exceptions.ValidationError:
+		# If outstanding is already 0, invoice was paid by another process — skip silently
+		if flt(frappe.db.get_value("Sales Invoice", doc.name, "outstanding_amount")) <= 0:
+			return
+		# Re-raise other validation errors
+		frappe.log_error(
+			title="Auto Payment Entry Failed",
+			message=frappe.get_traceback(),
+		)
+		frappe.msgprint(
+			_(
+				"Could not create Payment Entry for {0}. "
+				"Please create it manually."
+			).format(doc.name),
+			alert=True,
+		)
+
+	except Exception:
+		frappe.log_error(
+			title="Auto Payment Entry Failed",
+			message=frappe.get_traceback(),
+		)
+		frappe.msgprint(
+			_(
+				"Could not create Payment Entry for {0}. "
+				"Please create it manually."
+			).format(doc.name),
+			alert=True,
+		)

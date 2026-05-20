@@ -1,0 +1,229 @@
+<style>
+    .statement-container { font-family: 'Arial', 'Tahoma', sans-serif; font-size: 10pt; color: #111827; }
+    .statement-header { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid #1f2937; padding-bottom: 12px; }
+    .lang-en { text-align: left; flex: 1; }
+    .lang-ar { text-align: right; flex: 1; direction: rtl; font-family: 'Tahoma', sans-serif; }
+    .lang-ar h2 { font-size: 18pt; margin: 0 0 4px 0; }
+    .lang-en h2 { font-size: 18pt; margin: 0 0 4px 0; }
+    .lang-label { font-size: 8pt; color: #6b7280; text-transform: uppercase; }
+    .summary-box { background: #f9fafb; border: 1px solid #d1d8dd; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; }
+    .summary-box table { width: 100%; }
+    .summary-box td { padding: 4px 8px; font-size: 10pt; }
+    .summary-box .label { color: #6b7280; }
+    .summary-box .value { text-align: right; font-weight: bold; }
+    .summary-box .sum-total td { border-top: 1px solid #1f2937; padding-top: 8px; font-size: 11pt; }
+    table.transactions { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9pt; }
+    table.transactions th { background: #1f2937; color: #fff; padding: 6px 8px; text-align: left; font-weight: 600; }
+    table.transactions td { padding: 5px 8px; border-bottom: 1px solid #e5e7eb; }
+    table.transactions .amount { text-align: right; }
+    table.transactions .opening td { background: #eff6ff; font-weight: bold; }
+    table.transactions .closing td { background: #f0fdf4; font-weight: bold; }
+    table.transactions .totals td { background: #fefce8; font-weight: bold; border-top: 2px solid #1f2937; border-bottom: 2px solid #1f2937; }
+    .section-title { font-size: 11pt; font-weight: bold; margin: 16px 0 8px 0; color: #1f2937; border-bottom: 1px solid #d1d8dd; padding-bottom: 4px; }
+    .aging-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 10pt; }
+    .aging-table th { background: #374151; color: #fff; padding: 8px 10px; text-align: center; }
+    .aging-table td { padding: 8px 10px; text-align: center; border: 1px solid #d1d8dd; }
+    .vat-table { width: 60%; border-collapse: collapse; margin-bottom: 16px; font-size: 10pt; }
+    .vat-table th { background: #374151; color: #fff; padding: 6px 8px; text-align: left; }
+    .vat-table td { padding: 5px 8px; border-bottom: 1px solid #e5e7eb; }
+    .vat-table .amount { text-align: right; }
+    .statement-footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #d1d8dd; font-size: 8pt; color: #9ca3af; text-align: center; }
+    @media print {
+        body { margin: 0; padding: 0; }
+        .statement-container { padding: 10px; }
+    }
+</style>
+
+<div class="statement-container">
+
+    <!-- BILINGUAL HEADER -->
+    <div class="statement-header">
+        <div class="lang-en">
+            <h2>{{ _("Customer Statement") }}</h2>
+            <p><strong>{{ customer_doc.customer_name }}</strong></p>
+            <p>{{ _("Company") }}: {{ company }}</p>
+        </div>
+        <div class="lang-ar">
+            <h2>كشف حساب العميل</h2>
+            <p><strong>{{ customer_doc.get("customer_name_in_arabic") or customer_doc.customer_name }}</strong></p>
+            <p>الشركة: {{ company }}</p>
+        </div>
+    </div>
+
+    <!-- PERIOD -->
+    <p style="text-align: center; font-size: 10pt; margin-bottom: 16px;">
+        <strong>{{ _("Period") }}:</strong>
+        {{ frappe.utils.formatdate(from_date) }} &mdash; {{ frappe.utils.formatdate(to_date) }}
+    </p>
+
+    <!-- SUMMARY -->
+    <div class="summary-box">
+        <table cellpadding="0" cellspacing="0">
+            <tr>
+                <td class="label">{{ _("Opening Balance") }}</td>
+                <td class="value">{{ frappe.utils.fmt_money(opening, currency=company_currency) }}</td>
+            </tr>
+            <tr>
+                <td class="label">{{ _("Total Invoiced") }}</td>
+                <td class="value">{{ frappe.utils.fmt_money(total_invoiced, currency=company_currency) }}</td>
+            </tr>
+            <tr>
+                <td class="label">{{ _("Total Paid") }}</td>
+                <td class="value">{{ frappe.utils.fmt_money(total_paid, currency=company_currency) }}</td>
+            </tr>
+            <tr>
+                <td class="label">{{ _("Total Credit Notes") }}</td>
+                <td class="value">{{ frappe.utils.fmt_money(total_credit, currency=company_currency) }}</td>
+            </tr>
+            <tr class="sum-total">
+                <td class="label">{{ _("Closing Balance") }}</td>
+                <td class="value">{{ frappe.utils.fmt_money(closing, currency=company_currency) }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- TRANSACTIONS -->
+    <div class="section-title">{{ _("Transactions") }}</div>
+    <table class="transactions">
+        <thead>
+            <tr>
+                <th>{{ _("Date") }}</th>
+                <th>{{ _("Type") }}</th>
+                <th>{{ _("Reference") }}</th>
+                <th>{{ _("Due Date") }}</th>
+                <th class="amount">{{ _("Age") }}</th>
+                <th class="amount">{{ _("Invoiced") }}</th>
+                <th class="amount">{{ _("Paid") }}</th>
+                <th class="amount">{{ _("Credit Note") }}</th>
+                <th class="amount">{{ _("Outstanding") }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in data %}
+            {% set label = row.voucher_no %}
+            {% if label == _("Opening Balance") %}
+            <tr class="opening">
+                <td></td><td></td>
+                <td><strong>{{ label }}</strong></td>
+                <td></td><td></td><td></td><td></td><td></td>
+                <td class="amount"><strong>{{ frappe.utils.fmt_money(row.outstanding, currency=company_currency) }}</strong></td>
+            </tr>
+            {% elif label == _("Totals") %}
+            <tr class="totals">
+                <td></td><td></td>
+                <td><strong>{{ label }}</strong></td>
+                <td></td><td></td>
+                <td class="amount"><strong>{{ frappe.utils.fmt_money(row.invoiced, currency=company_currency) }}</strong></td>
+                <td class="amount"><strong>{{ frappe.utils.fmt_money(row.paid, currency=company_currency) }}</strong></td>
+                <td class="amount"><strong>{{ frappe.utils.fmt_money(row.credit_note, currency=company_currency) }}</strong></td>
+                <td class="amount"><strong>{{ frappe.utils.fmt_money(row.outstanding, currency=company_currency) }}</strong></td>
+            </tr>
+            {% elif label == _("Closing Balance") %}
+            <tr class="closing">
+                <td></td><td></td>
+                <td><strong>{{ label }}</strong></td>
+                <td></td><td></td><td></td><td></td><td></td>
+                <td class="amount"><strong>{{ frappe.utils.fmt_money(row.outstanding, currency=company_currency) }}</strong></td>
+            </tr>
+            {% elif row.voucher_type == "Sales Invoice" %}
+            <tr>
+                <td>{{ frappe.utils.formatdate(row.posting_date) }}</td>
+                <td>{{ _(row.voucher_type) }}</td>
+                <td>{{ row.voucher_no }}</td>
+                <td>{{ frappe.utils.formatdate(row.due_date) }}</td>
+                <td class="amount">{{ row.age }}</td>
+                <td class="amount">{{ frappe.utils.fmt_money(row.invoiced, currency=company_currency) }}</td>
+                <td class="amount">{{ frappe.utils.fmt_money(row.paid, currency=company_currency) }}</td>
+                <td class="amount"></td>
+                <td class="amount">{{ frappe.utils.fmt_money(row.outstanding, currency=company_currency) }}</td>
+            </tr>
+            {% elif row.voucher_type == "Credit Note" %}
+            <tr>
+                <td>{{ frappe.utils.formatdate(row.posting_date) }}</td>
+                <td>{{ _(row.voucher_type) }}</td>
+                <td>{{ row.voucher_no }}</td>
+                <td>{{ frappe.utils.formatdate(row.due_date) }}</td>
+                <td class="amount"></td>
+                <td class="amount"></td>
+                <td class="amount"></td>
+                <td class="amount">{{ frappe.utils.fmt_money(row.credit_note, currency=company_currency) }}</td>
+                <td class="amount"></td>
+            </tr>
+            {% elif row.voucher_type == "Payment Entry" %}
+            <tr>
+                <td>{{ frappe.utils.formatdate(row.posting_date) }}</td>
+                <td>{{ _(row.voucher_type) }}</td>
+                <td>{{ row.voucher_no }}</td>
+                <td>{{ frappe.utils.formatdate(row.posting_date) }}</td>
+                <td class="amount"></td>
+                <td class="amount"></td>
+                <td class="amount">{{ frappe.utils.fmt_money(row.paid, currency=company_currency) }}</td>
+                <td class="amount"></td>
+                <td class="amount"></td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- VAT SUMMARY -->
+    {% if vat and vat|length > 0 %}
+    <div class="section-title">{{ _("VAT Summary") }}</div>
+    <table class="vat-table">
+        <thead>
+            <tr>
+                <th>{{ _("VAT Rate") }}</th>
+                <th class="amount">{{ _("Taxable Amount") }}</th>
+                <th class="amount">{{ _("VAT Amount") }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for v in vat %}
+            <tr>
+                <td>{{ v.rate }}%</td>
+                <td class="amount">{{ frappe.utils.fmt_money(v.taxable_amount, currency=company_currency) }}</td>
+                <td class="amount">{{ frappe.utils.fmt_money(v.tax_amount, currency=company_currency) }}</td>
+            </tr>
+            {% endfor %}
+            <tr style="font-weight: bold; border-top: 2px solid #1f2937;">
+                <td>{{ _("Total") }}</td>
+                <td class="amount">{{ frappe.utils.fmt_money(vat_total_taxable, currency=company_currency) }}</td>
+                <td class="amount">{{ frappe.utils.fmt_money(vat_total_tax, currency=company_currency) }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% endif %}
+
+    <!-- AGING -->
+    {% if aging %}
+    <div class="section-title">{{ _("Outstanding Aging") }}</div>
+    <table class="aging-table">
+        <thead>
+            <tr>
+                <th>{{ _("0-30 Days") }}</th>
+                <th>{{ _("31-60 Days") }}</th>
+                <th>{{ _("61-90 Days") }}</th>
+                <th>{{ _("91-120 Days") }}</th>
+                <th>{{ _("120+ Days") }}</th>
+                <th>{{ _("Total Outstanding") }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>{{ frappe.utils.fmt_money(aging["0-30"], currency=company_currency) }}</td>
+                <td>{{ frappe.utils.fmt_money(aging["31-60"], currency=company_currency) }}</td>
+                <td>{{ frappe.utils.fmt_money(aging["61-90"], currency=company_currency) }}</td>
+                <td>{{ frappe.utils.fmt_money(aging["91-120"], currency=company_currency) }}</td>
+                <td>{{ frappe.utils.fmt_money(aging["120+"], currency=company_currency) }}</td>
+                <td><strong>{{ frappe.utils.fmt_money(closing, currency=company_currency) }}</strong></td>
+            </tr>
+        </tbody>
+    </table>
+    {% endif %}
+
+    <!-- FOOTER -->
+    <div class="statement-footer">
+        {{ _("Printed on") }} {{ print_date }} &mdash; {{ _("Generated by Aqrar Ext") }}
+    </div>
+
+</div>

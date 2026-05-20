@@ -147,16 +147,25 @@ def fetch_sales_invoices(t, date,company, cost_center):
 
         amount_field = """
             IFNULL(
-                CASE 
+                CASE
                     WHEN si.is_pos = 1 THEN SUM(sip.amount)
                     ELSE SUM(per.allocated_amount)
+                END,
+                CASE
+                    WHEN si.custom_payment_mode = 'Cash' THEN si.grand_total
+                    ELSE 0
                 END
-            ,0)
+            )
         """
 
         date_condition = """
             AND si.posting_date = %(date)s
             AND (
+                (
+                    si.is_pos = 0
+                    AND si.custom_payment_mode = 'Cash'
+                )
+                OR
                 (
                     si.is_pos = 0
                     AND pe.posting_date <= si.posting_date
@@ -182,16 +191,25 @@ def fetch_sales_invoices(t, date,company, cost_center):
 
         amount_field = """
             IFNULL(
-                CASE 
+                CASE
                     WHEN si.is_pos = 1 THEN SUM(sip.amount)
                     ELSE SUM(per.allocated_amount)
+                END,
+                CASE
+                    WHEN si.custom_payment_mode = 'Card' THEN si.grand_total
+                    ELSE 0
                 END
-            ,0)
+            )
         """
 
         date_condition = """
             AND si.posting_date = %(date)s
             AND (
+                (
+                    si.is_pos = 0
+                    AND si.custom_payment_mode = 'Card'
+                )
+                OR
                 (
                     si.is_pos = 0
                     AND pe.posting_date = %(date)s
@@ -218,6 +236,7 @@ def fetch_sales_invoices(t, date,company, cost_center):
         date_condition = """
             AND si.posting_date = %(date)s
             AND si.is_pos = 0
+            AND si.custom_payment_mode = 'Credit'
             AND NOT EXISTS (
                 SELECT 1
                 FROM `tabPayment Entry Reference` per2
