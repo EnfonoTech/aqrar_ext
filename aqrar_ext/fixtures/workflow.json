@@ -2,6 +2,7 @@
  {
   "docstatus": 0,
   "doctype": "Workflow",
+<<<<<<< HEAD
   "document_type": "Material Request",
   "is_active": 1,
   "modified": "2026-05-19 16:15:59.237356",
@@ -17,12 +18,48 @@
     "message": "Waiting for Branch User approval",
     "next_action_email_template": null,
     "parent": "Material Request Approval",
+=======
+  "document_type": "Stock Entry",
+  "is_active": 1,
+  "name": "Stock Transfer Approval",
+  "override_status": 0,
+  "send_email_alert": 1,
+  "states": [
+   {
+    "allow_edit": "Stock User",
+    "avoid_status_override": 0,
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": "",
+    "next_action_email_template": "",
+    "parent": "Stock Transfer Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Draft",
+    "update_field": "workflow_state",
+    "update_value": "Draft",
+    "workflow_builder_id": null
+   },
+   {
+    "allow_edit": "Branch Approver",
+    "avoid_status_override": 0,
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": "Stock Transfer requires your approval. Please review and approve or reject.",
+    "next_action_email_template": "",
+    "parent": "Stock Transfer Approval",
+>>>>>>> f2e4231 (feat:aqrar implmentation)
     "parentfield": "states",
     "parenttype": "Workflow",
     "send_email": 0,
     "state": "Pending Approval",
     "update_field": "workflow_state",
+<<<<<<< HEAD
     "update_value": null,
+=======
+    "update_value": "Pending Approval",
+>>>>>>> f2e4231 (feat:aqrar implmentation)
     "workflow_builder_id": null
    },
    {
@@ -30,6 +67,7 @@
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
+<<<<<<< HEAD
     "message": "Approved - Ready for Transfer",
     "next_action_email_template": null,
     "parent": "Material Request Approval",
@@ -71,17 +109,66 @@
     "state": "Closed",
     "update_field": "workflow_state",
     "update_value": null,
+=======
+    "message": "Stock Transfer has been approved and committed.",
+    "next_action_email_template": "",
+    "parent": "Stock Transfer Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Committed",
+    "update_field": "workflow_state",
+    "update_value": "Committed",
+    "workflow_builder_id": null
+   },
+   {
+    "allow_edit": "Stock User",
+    "avoid_status_override": 0,
+    "doc_status": "1",
+    "is_optional_state": 1,
+    "message": "Stock Transfer has been rejected.",
+    "next_action_email_template": "",
+    "parent": "Stock Transfer Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Rejected",
+    "update_field": "workflow_state",
+    "update_value": "Rejected",
+>>>>>>> f2e4231 (feat:aqrar implmentation)
     "workflow_builder_id": null
    }
   ],
   "transitions": [
    {
+<<<<<<< HEAD
     "action": "Approve",
     "allow_self_approval": 0,
     "allowed": "Branch User",
     "condition": "frappe.session.user != doc.owner",
     "next_state": "Approved",
     "parent": "Material Request Approval",
+=======
+    "action": "Submit for Approval",
+    "allow_self_approval": 0,
+    "allowed": "Stock User",
+    "condition": null,
+    "next_state": "Pending Approval",
+    "parent": "Stock Transfer Approval",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Draft",
+    "workflow_builder_id": null
+   },
+   {
+    "action": "Approve",
+    "allow_self_approval": 0,
+    "allowed": "Branch Approver",
+    "condition": null,
+    "next_state": "Committed",
+    "parent": "Stock Transfer Approval",
+>>>>>>> f2e4231 (feat:aqrar implmentation)
     "parentfield": "transitions",
     "parenttype": "Workflow",
     "send_email_to_creator": 0,
@@ -91,10 +178,123 @@
    {
     "action": "Reject",
     "allow_self_approval": 0,
+<<<<<<< HEAD
     "allowed": "Branch User",
     "condition": null,
     "next_state": "Closed",
     "parent": "Material Request Approval",
+=======
+    "allowed": "Branch Approver",
+    "condition": null,
+    "next_state": "Rejected",
+    "parent": "Stock Transfer Approval",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Pending Approval",
+    "workflow_builder_id": null
+   }
+  ],
+  "workflow_data": null,
+  "workflow_name": "Stock Transfer Approval",
+  "workflow_state_field": "workflow_state"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow",
+  "document_type": "Journal Entry",
+  "is_active": 1,
+  "name": "Journal Entry Approval",
+  "override_status": 0,
+  "send_email_alert": 1,
+  "states": [
+   {
+    "allow_edit": "Accounts User",
+    "avoid_status_override": 0,
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": "",
+    "next_action_email_template": "",
+    "parent": "Journal Entry Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Draft",
+    "update_field": "workflow_state",
+    "update_value": "Draft",
+    "workflow_builder_id": null
+   },
+   {
+    "allow_edit": "Branch Accountant",
+    "avoid_status_override": 0,
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": "Journal Entry requires your approval. Please review and approve or reject.",
+    "next_action_email_template": "",
+    "parent": "Journal Entry Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Pending Approval",
+    "update_field": "workflow_state",
+    "update_value": "Pending Approval",
+    "workflow_builder_id": null
+   },
+   {
+    "allow_edit": "Accounts Manager",
+    "avoid_status_override": 0,
+    "doc_status": "1",
+    "is_optional_state": 0,
+    "message": "Journal Entry has been approved and posted.",
+    "next_action_email_template": "",
+    "parent": "Journal Entry Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Posted",
+    "update_field": "workflow_state",
+    "update_value": "Posted",
+    "workflow_builder_id": null
+   },
+   {
+    "allow_edit": "Accounts User",
+    "avoid_status_override": 0,
+    "doc_status": "1",
+    "is_optional_state": 1,
+    "message": "Journal Entry has been rejected.",
+    "next_action_email_template": "",
+    "parent": "Journal Entry Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Rejected",
+    "update_field": "workflow_state",
+    "update_value": "Rejected",
+    "workflow_builder_id": null
+   }
+  ],
+  "transitions": [
+   {
+    "action": "Submit for Approval",
+    "allow_self_approval": 0,
+    "allowed": "Accounts User",
+    "condition": null,
+    "next_state": "Pending Approval",
+    "parent": "Journal Entry Approval",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Draft",
+    "workflow_builder_id": null
+   },
+   {
+    "action": "Approve",
+    "allow_self_approval": 0,
+    "allowed": "Branch Accountant",
+    "condition": null,
+    "next_state": "Posted",
+    "parent": "Journal Entry Approval",
+>>>>>>> f2e4231 (feat:aqrar implmentation)
     "parentfield": "transitions",
     "parenttype": "Workflow",
     "send_email_to_creator": 0,
@@ -102,6 +302,7 @@
     "workflow_builder_id": null
    },
    {
+<<<<<<< HEAD
     "action": "Cancel",
     "allow_self_approval": 0,
     "allowed": "Branch User",
@@ -125,11 +326,149 @@
     "parenttype": "Workflow",
     "send_email_to_creator": 0,
     "state": "Approved",
+=======
+    "action": "Reject",
+    "allow_self_approval": 0,
+    "allowed": "Branch Accountant",
+    "condition": null,
+    "next_state": "Rejected",
+    "parent": "Journal Entry Approval",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Pending Approval",
+>>>>>>> f2e4231 (feat:aqrar implmentation)
     "workflow_builder_id": null
    }
   ],
   "workflow_data": null,
+<<<<<<< HEAD
   "workflow_name": "Material Request Approval",
   "workflow_state_field": "workflow_state"
  }
 ]
+=======
+  "workflow_name": "Journal Entry Approval",
+  "workflow_state_field": "workflow_state"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow",
+  "document_type": "Payment Entry",
+  "is_active": 1,
+  "name": "Payment Entry Approval",
+  "override_status": 0,
+  "send_email_alert": 1,
+  "states": [
+   {
+    "allow_edit": "Accounts User",
+    "avoid_status_override": 0,
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": "",
+    "next_action_email_template": "",
+    "parent": "Payment Entry Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Draft",
+    "update_field": "workflow_state",
+    "update_value": "Draft",
+    "workflow_builder_id": null
+   },
+   {
+    "allow_edit": "Branch Accountant",
+    "avoid_status_override": 0,
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": "Payment Entry requires your approval. Please verify the payment details.",
+    "next_action_email_template": "",
+    "parent": "Payment Entry Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Pending Approval",
+    "update_field": "workflow_state",
+    "update_value": "Pending Approval",
+    "workflow_builder_id": null
+   },
+   {
+    "allow_edit": "Accounts Manager",
+    "avoid_status_override": 0,
+    "doc_status": "1",
+    "is_optional_state": 0,
+    "message": "Payment Entry has been approved.",
+    "next_action_email_template": "",
+    "parent": "Payment Entry Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Approved",
+    "update_field": "workflow_state",
+    "update_value": "Approved",
+    "workflow_builder_id": null
+   },
+   {
+    "allow_edit": "Accounts User",
+    "avoid_status_override": 0,
+    "doc_status": "1",
+    "is_optional_state": 1,
+    "message": "Payment Entry has been rejected.",
+    "next_action_email_template": "",
+    "parent": "Payment Entry Approval",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Rejected",
+    "update_field": "workflow_state",
+    "update_value": "Rejected",
+    "workflow_builder_id": null
+   }
+  ],
+  "transitions": [
+   {
+    "action": "Submit for Approval",
+    "allow_self_approval": 0,
+    "allowed": "Accounts User",
+    "condition": null,
+    "next_state": "Pending Approval",
+    "parent": "Payment Entry Approval",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Draft",
+    "workflow_builder_id": null
+   },
+   {
+    "action": "Approve",
+    "allow_self_approval": 0,
+    "allowed": "Branch Accountant",
+    "condition": null,
+    "next_state": "Approved",
+    "parent": "Payment Entry Approval",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Pending Approval",
+    "workflow_builder_id": null
+   },
+   {
+    "action": "Reject",
+    "allow_self_approval": 0,
+    "allowed": "Branch Accountant",
+    "condition": null,
+    "next_state": "Rejected",
+    "parent": "Payment Entry Approval",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Pending Approval",
+    "workflow_builder_id": null
+   }
+  ],
+  "workflow_data": null,
+  "workflow_name": "Payment Entry Approval",
+  "workflow_state_field": "workflow_state"
+ }
+]
+>>>>>>> f2e4231 (feat:aqrar implmentation)

@@ -19,6 +19,7 @@
   "attention",
   "mob_no",
   "rqf_no",
+  "selling_price_list",
   "section_break_dwhc",
   "items",
   "section_break_iajw",
@@ -154,12 +155,19 @@
    "fieldname": "terms_and_conditions",
    "fieldtype": "Text Editor",
    "label": "Terms and Conditions"
+  },
+  {
+   "fieldname": "selling_price_list",
+   "fieldtype": "Link",
+   "label": "Selling Price List",
+   "options": "Price List",
+   "insert_after": "rqf_no"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-05 10:42:18.239467",
+ "modified": "2026-05-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Aqrar Ext",
  "name": "Custom Quote",

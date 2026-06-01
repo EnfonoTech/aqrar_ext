@@ -1,0 +1,13 @@
+{
+ "content": null,
+ "doctype": "Page",
+ "module": "Aqrar Ext",
+ "name": "price-list-bulk-editor",
+ "page_name": "price-list-bulk-editor",
+ "roles": [
+  {"role": "System Manager"},
+  {"role": "Sales Master Manager"}
+ ],
+ "standard": "Yes",
+ "title": "Price List Bulk Editor"
+}

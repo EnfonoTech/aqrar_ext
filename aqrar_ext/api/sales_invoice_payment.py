@@ -143,7 +143,7 @@ def create_pos_payments_for_invoice(sales_invoice: str, payments: str | list):
 
 		pe.flags.ignore_validate = True
 		if hasattr(pe, "workflow_state"):
-			pe.workflow_state = "Pending"
+			pe.workflow_state = "Pending Approval"
 
 		pe.submit()
 		created.append(pe.name)
