@@ -1,0 +1,187 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-02-04 11:58:43.758454",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "company",
+  "cost_center",
+  "column_break_jamd",
+  "posting_date",
+  "valid_till",
+  "section_break_fewb",
+  "customer",
+  "customer_address",
+  "column_break_dmjs",
+  "attention",
+  "mob_no",
+  "rqf_no",
+  "section_break_dwhc",
+  "items",
+  "section_break_iajw",
+  "net_total",
+  "column_break_fobf",
+  "vat_total",
+  "column_break_sqjh",
+  "grand_total",
+  "section_break_xgds",
+  "select_terms",
+  "terms_and_conditions"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "CQT-.YYYY.####"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "column_break_jamd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date ",
+   "reqd": 1
+  },
+  {
+   "fieldname": "valid_till",
+   "fieldtype": "Date",
+   "label": "Valid Till"
+  },
+  {
+   "fieldname": "section_break_fewb",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fetch_from": "customer.primary_address",
+   "fieldname": "customer_address",
+   "fieldtype": "Text Editor",
+   "label": "Customer Address"
+  },
+  {
+   "fieldname": "column_break_dmjs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "attention",
+   "fieldtype": "Data",
+   "label": "Attention"
+  },
+  {
+   "fieldname": "mob_no",
+   "fieldtype": "Phone",
+   "label": "Mob No"
+  },
+  {
+   "fieldname": "rqf_no",
+   "fieldtype": "Data",
+   "label": "RQF No"
+  },
+  {
+   "fieldname": "section_break_dwhc",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Custom Quote Item"
+  },
+  {
+   "fieldname": "section_break_iajw",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "vat_total",
+   "fieldtype": "Currency",
+   "label": "VAT Total"
+  },
+  {
+   "fieldname": "column_break_fobf",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "net_total",
+   "fieldtype": "Currency",
+   "label": "Net Total"
+  },
+  {
+   "fieldname": "column_break_sqjh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total"
+  },
+  {
+   "fieldname": "section_break_xgds",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "select_terms",
+   "fieldtype": "Link",
+   "label": "Select Terms",
+   "options": "Terms and Conditions"
+  },
+  {
+   "fetch_from": "select_terms.terms",
+   "fieldname": "terms_and_conditions",
+   "fieldtype": "Text Editor",
+   "label": "Terms and Conditions"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-02-05 10:42:18.239467",
+ "modified_by": "Administrator",
+ "module": "Aqrar Ext",
+ "name": "Custom Quote",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
