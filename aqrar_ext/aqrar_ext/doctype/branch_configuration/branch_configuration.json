@@ -9,6 +9,7 @@
   "column_break_aubg",
   "company",
   "section_break_dlxc",
+  "mode_of_payment",
   "warehouse",
   "cost_center",
   "user"
@@ -53,12 +54,19 @@
    "fieldtype": "Table",
    "label": "User",
    "options": "Branch Configuration User"
+  },
+  {
+   "description": "Cash + Bank Modes of Payment allowed for this branch. On Sales Invoice for Branch Users,payment rows whose MoP type is Cash or Bank are constrained to this list (or swapped to the first matching row); BNPL is left untouched.",
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Table",
+   "label": "Mode of Payment",
+   "options": "Branch Configuration Mode of Payment"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-27 16:07:12.519306",
+ "modified": "2026-05-16 19:23:57.892929",
  "modified_by": "Administrator",
  "module": "Aqrar Ext",
  "name": "Branch Configuration",
