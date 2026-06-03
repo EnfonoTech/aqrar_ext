@@ -1,55 +1,28 @@
 [
  {
-  "accounts": [
-   {
-    "company": "enfono",
-    "default_account": "Cash - E",
-    "parent": "Cash",
-    "parentfield": "accounts",
-    "parenttype": "Mode of Payment"
-   }
-  ],
+  "accounts": [],
   "docstatus": 0,
   "doctype": "Mode of Payment",
   "enabled": 1,
   "mode_of_payment": "Cash",
-  "modified": "2026-05-11 12:00:13.777907",
   "name": "Cash",
   "type": "Cash"
  },
  {
-  "accounts": [
-   {
-    "company": "enfono",
-    "default_account": "Cash - E",
-    "parent": "Card",
-    "parentfield": "accounts",
-    "parenttype": "Mode of Payment"
-   }
-  ],
+  "accounts": [],
   "docstatus": 0,
   "doctype": "Mode of Payment",
   "enabled": 1,
   "mode_of_payment": "Card",
-  "modified": "2026-05-19 15:53:16.525640",
   "name": "Card",
   "type": "Bank"
  },
  {
-  "accounts": [
-   {
-    "company": "enfono",
-    "default_account": "Cash - E",
-    "parent": "Credit",
-    "parentfield": "accounts",
-    "parenttype": "Mode of Payment"
-   }
-  ],
+  "accounts": [],
   "docstatus": 0,
   "doctype": "Mode of Payment",
   "enabled": 1,
   "mode_of_payment": "Credit",
-  "modified": "2026-05-19 15:53:16.566542",
   "name": "Credit",
   "type": "Bank"
  }
