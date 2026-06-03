@@ -12,9 +12,21 @@ app_license = "mit"
 # include js, css files in header of desk.html
 # app_include_css = "/assets/develop/css/develop.css"
 
+doctype_js = {
+	"Journal Entry": "public/js/journal_entry_commission.js",
+}
+
 app_include_js = [
 	"/assets/aqrar_ext/js/sales_invoice_pos_total_popup.js",
     "/assets/sf_trading/js/workflowapproval.js",
+    "/assets/aqrar_ext/js/sales_invoice_return.js",
+    "/assets/aqrar_ext/js/sales_invoice_branch_price_list.js",
+    "/assets/aqrar_ext/js/auto_print_preview.js",
+    "/assets/aqrar_ext/js/item_naming_from_group.js",
+    "/assets/aqrar_ext/js/notification_sound.js",
+    "/assets/aqrar_ext/js/sales_invoice_navigation.js",
+    "/assets/aqrar_ext/js/sales_invoice_book_commission.js",
+    "/assets/aqrar_ext/js/sales_invoice_payment_terms.js",
 ]
 
 # include js, css files in header of web template
@@ -302,8 +314,73 @@ fixtures = [
 				[
 					# Sales Invoice
 					"Sales Invoice-custom_payment_mode",
-				],
+					# CR-015: Price List Bulk Editor & Min Price
+					"Item Price-custom_minimum_selling_rate",
+										"Price List-custom_branch",
+					"Sales Invoice-custom_override_minimum_price",
+					# CR-023: Commission JE reference
+				"Journal Entry-custom_reference_invoice",
+				"Company-default_commission_expense_account",
+				"Company-default_commission_payable_account",
+				"Company-default_discount_expense_account",
+				"Company-default_discount_payable_account",
+				# CR-021: Sound alert toggle
+				"User-custom_enable_sound_alerts",
+				# CR-020: Item naming series per item group
+				"Item Group-custom_default_item_naming_series",
+				# CR-017: Approval Workflows — workflow_state fields
+					"Stock Entry-workflow_state",
+					"Journal Entry-workflow_state",
+					"Payment Entry-workflow_state",
+									],
 			]
 		]
 	},
+	"Workflow State",
+	"Workflow Action Master",
+	"Workflow",
+	"Custom DocPerm",
+	"Notification",
 ]
+
+scheduler_events = {
+	"daily": [
+		"aqrar_ext.api.day_close.run_day_close",
+	],
+}
+
+doc_events = {
+	"Sales Invoice": {
+		"validate": "aqrar_ext.aqrar_ext.overrides.sales_invoice.validate",
+		"before_save": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_save",
+		"before_print": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_print",
+	},
+	# CR-017: Branch-level approval validation
+	"Stock Entry": {
+		"validate": "aqrar_ext.aqrar_ext.workflow.conditions.validate_stock_entry_approval",
+	},
+	"Journal Entry": {
+		"validate": "aqrar_ext.aqrar_ext.workflow.conditions.validate_journal_entry_approval",
+	},
+	"Payment Entry": {
+		"validate": "aqrar_ext.aqrar_ext.workflow.conditions.validate_payment_entry_approval",
+	},
+	"Expense Claim": {
+		"validate": "aqrar_ext.aqrar_ext.workflow.conditions.validate_expense_claim_approval",
+	},
+	"Custom Quote": {
+		"validate": "aqrar_ext.aqrar_ext.doctype.custom_quote.custom_quote.validate",
+	},
+}
+
+after_migrate = [
+	"aqrar_ext.setup_data.create",
+]
+
+# CR-024: Expose print helper functions to Jinja templates
+jenv = {
+	"methods": [
+		"aqrar_ext.aqrar_ext.utils.print_helpers.format_item_display",
+		"aqrar_ext.aqrar_ext.utils.print_helpers.get_display_mode",
+	]
+}

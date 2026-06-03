@@ -7,6 +7,7 @@ import frappe
 from frappe.model.document import Document
 
 BRANCH_USER_ROLE = "Branch User"
+APPROVER_ROLES = {"Branch Approver", "Branch Accountant", "Branch User", "Damage User"}
 
 
 class BranchConfiguration(Document):
@@ -103,10 +104,14 @@ class BranchConfiguration(Document):
 			_assign_role(u.user, selected_role)
 
 			# Auto-set Module Profile to restrict sidebar modules
-			if selected_role == BRANCH_USER_ROLE:
-				_set_module_profile(u.user, "Branch User")
-			elif selected_role == "Damage User":
-				_set_module_profile(u.user, "Damage User")
+			_module_profile_map = {
+				"Branch User": "Branch User",
+				"Damage User": "Damage User",
+				"Branch Approver": "Branch User",
+				"Branch Accountant": "Branch User",
+			}
+			profile = _module_profile_map.get(selected_role, "Branch User")
+			_set_module_profile(u.user, profile)
 
 
 def create_permission(user, allow, value, is_default=0):

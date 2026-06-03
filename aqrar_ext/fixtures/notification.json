@@ -1,0 +1,110 @@
+[
+ {
+  "channel": "System Notification",
+  "condition": null,
+  "days_in_advance": 0,
+  "docstatus": 0,
+  "doctype": "Notification",
+  "document_type": "Item",
+  "enabled": 1,
+  "event": "New",
+  "is_standard": 1,
+  "method": null,
+  "module": "Aqrar Ext",
+  "name": "Item Created Alert",
+  "print_format": null,
+  "recipients": [
+   {
+    "cc": null,
+    "bcc": null,
+    "condition": null,
+    "parent": "Item Created Alert",
+    "parentfield": "recipients",
+    "parenttype": "Notification",
+    "receiver_by_document_field": null,
+    "receiver_by_role": "Item Manager"
+   },
+   {
+    "cc": null,
+    "bcc": null,
+    "condition": null,
+    "parent": "Item Created Alert",
+    "parentfield": "recipients",
+    "parenttype": "Notification",
+    "receiver_by_document_field": null,
+    "receiver_by_role": "Stock Manager"
+   },
+   {
+    "cc": null,
+    "bcc": null,
+    "condition": null,
+    "parent": "Item Created Alert",
+    "parentfield": "recipients",
+    "parenttype": "Notification",
+    "receiver_by_document_field": null,
+    "receiver_by_role": "Stock User"
+   }
+  ],
+  "send_to_all_assignees": 0,
+  "sender": null,
+  "sender_email": null,
+  "set_property_after_alert": null,
+  "slack_webhook_url": null,
+  "subject": "New Item Created: {{ doc.item_code }} - {{ doc.item_name }}",
+  "value_changed": null
+ },
+ {
+  "channel": "System Notification",
+  "condition": null,
+  "days_in_advance": 0,
+  "docstatus": 0,
+  "doctype": "Notification",
+  "document_type": "Item Price",
+  "enabled": 1,
+  "event": "Value Change",
+  "is_standard": 1,
+  "method": null,
+  "module": "Aqrar Ext",
+  "name": "Item Price Updated Alert",
+  "print_format": null,
+  "recipients": [
+   {
+    "cc": null,
+    "bcc": null,
+    "condition": null,
+    "parent": "Item Price Updated Alert",
+    "parentfield": "recipients",
+    "parenttype": "Notification",
+    "receiver_by_document_field": null,
+    "receiver_by_role": "Item Manager"
+   },
+   {
+    "cc": null,
+    "bcc": null,
+    "condition": null,
+    "parent": "Item Price Updated Alert",
+    "parentfield": "recipients",
+    "parenttype": "Notification",
+    "receiver_by_document_field": null,
+    "receiver_by_role": "Stock Manager"
+   },
+   {
+    "cc": null,
+    "bcc": null,
+    "condition": null,
+    "parent": "Item Price Updated Alert",
+    "parentfield": "recipients",
+    "parenttype": "Notification",
+    "receiver_by_document_field": null,
+    "receiver_by_role": "Sales Master Manager"
+   }
+  ],
+  "send_to_all_assignees": 0,
+  "sender": null,
+  "sender_email": null,
+  "set_property_after_alert": null,
+  "slack_webhook_url": null,
+  "subject": "Item Price Updated: {{ doc.item_code }} — {{ doc.price_list }} rate changed to {{ doc.price_list_rate }}",
+  "value_changed": "price_list_rate"
+ }
+]
