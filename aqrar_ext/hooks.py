@@ -27,6 +27,7 @@ app_include_js = [
     "/assets/aqrar_ext/js/sales_invoice_navigation.js",
     "/assets/aqrar_ext/js/sales_invoice_book_commission.js",
     "/assets/aqrar_ext/js/sales_invoice_payment_terms.js",
+    "/assets/aqrar_ext/js/customer_price_history.js",
 ]
 
 # include js, css files in header of web template
