@@ -28,6 +28,9 @@ app_include_js = [
     "/assets/aqrar_ext/js/sales_invoice_book_commission.js",
     "/assets/aqrar_ext/js/sales_invoice_payment_terms.js",
     "/assets/aqrar_ext/js/customer_price_history.js",
+    "/assets/aqrar_ext/js/customer_statement.js",
+    "/assets/aqrar_ext/js/stock_ledger_override.js",
+    "/assets/aqrar_ext/js/material_request_custom.js",
 ]
 
 # include js, css files in header of web template
@@ -355,6 +358,7 @@ doc_events = {
 		"validate": "aqrar_ext.aqrar_ext.overrides.sales_invoice.validate",
 		"before_save": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_save",
 		"before_print": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_print",
+		"on_submit": "aqrar_ext.api.sales_invoice.auto_create_payment_entry_on_submit",
 	},
 	# CR-017: Branch-level approval validation
 	"Stock Entry": {
@@ -371,6 +375,9 @@ doc_events = {
 	},
 	"Custom Quote": {
 		"validate": "aqrar_ext.aqrar_ext.doctype.custom_quote.custom_quote.validate",
+	},
+	"Material Request": {
+		"validate": "aqrar_ext.events.material_request.validate_branch_user",
 	},
 }
 

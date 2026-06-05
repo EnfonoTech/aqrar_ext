@@ -1,4 +1,30 @@
 // aqrar_ext: Material Request — running counter + close button + urgent
+
+// List view: highlight urgent MRs in red
+frappe.listview_settings["Material Request"] = frappe.listview_settings["Material Request"] || {};
+
+frappe.listview_settings["Material Request"].get_indicator = function (doc) {
+    if (doc.custom_urgent) {
+        return [__("Urgent"), "red", "custom_urgent,=,1"];
+    }
+};
+
+frappe.listview_settings["Material Request"].onload = function (listview) {
+    listview.page.wrapper.on("render-complete", function () {
+        listview.$result.find(".list-row-container").each(function () {
+            var name = $(this).find(".list-row").attr("data-name");
+            if (!name) return;
+            var doc = listview.data.find(function (d) { return d.name === name; });
+            if (doc && doc.custom_urgent) {
+                $(this).css({
+                    "background-color": "#fff1f1",
+                    "border-left": "3px solid red"
+                });
+            }
+        });
+    });
+};
+
 frappe.ui.form.on("Material Request", {
     refresh(frm) {
         show_fulfillment(frm);
