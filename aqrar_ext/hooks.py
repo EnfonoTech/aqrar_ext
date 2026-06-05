@@ -17,6 +17,8 @@ doctype_js = {
 }
 
 app_include_js = [
+	"/assets/aqrar_ext/js/item_selector.js",
+	"/assets/aqrar_ext/js/item_selector_hook.js",
 	"/assets/aqrar_ext/js/sales_invoice_pos_total_popup.js",
     "/assets/sf_trading/js/workflowapproval.js",
     "/assets/aqrar_ext/js/sales_invoice_return.js",
