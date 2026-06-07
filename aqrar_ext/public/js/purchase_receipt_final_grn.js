@@ -1,6 +1,6 @@
 frappe.ui.form.on('Purchase Receipt', {
     refresh: function(frm) {
-        if (frm.doc.docstatus === 1 || frm.doc.docstatus === 0) {
+        if (frm.doc.docstatus === 1) {
             frm.add_custom_button(__('Final GRN'), function() {
                 new_purchase_receipt_with_data(frm);
             }, __('Create'));

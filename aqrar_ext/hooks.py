@@ -33,6 +33,7 @@ app_include_js = [
     "/assets/aqrar_ext/js/customer_statement.js",
     "/assets/aqrar_ext/js/stock_ledger_override.js",
     "/assets/aqrar_ext/js/material_request_custom.js",
+    "/assets/aqrar_ext/js/purchase_receipt_final_grn.js",
 ]
 
 # include js, css files in header of web template
@@ -380,6 +381,10 @@ doc_events = {
 	},
 	"Material Request": {
 		"validate": "aqrar_ext.events.material_request.validate_branch_user",
+	},
+	# CR-001: Block PR cancel when stock already consumed
+	"Purchase Receipt": {
+		"before_cancel": "aqrar_ext.events.purchase_receipt.block_cancel_if_consumed",
 	},
 }
 
