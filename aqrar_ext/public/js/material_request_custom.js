@@ -62,27 +62,57 @@ frappe.ui.form.on("Material Request", {
 });
 
 function show_fulfillment(frm) {
-    // Remove previous
     $(".aqrar-fulfillment").remove();
 
+    var items = frm.doc.items || [];
+    if (!items.length) return;
+
     var total_req = 0, total_done = 0;
-    (frm.doc.items || []).forEach(function (item) {
-        total_req += flt(item.stock_qty || item.qty || 0);
-        total_done += flt(item.ordered_qty || 0);
+    var rows_html = "";
+
+    items.forEach(function (item) {
+        var req = flt(item.stock_qty || item.qty || 0);
+        var done = flt(item.ordered_qty || 0);
+        var pending = Math.max(req - done, 0);
+        total_req += req;
+        total_done += done;
+
+        var pct = req > 0 ? Math.round((done / req) * 100) : 0;
+        var color = pct >= 100 ? "#16a34a" : pct > 0 ? "#d97706" : "#6b7280";
+
+        rows_html += '<tr>' +
+            '<td style="padding:4px 8px;">' + (item.item_code || "") + '</td>' +
+            '<td style="padding:4px 8px;color:#333;">' + (item.item_name || "") + '</td>' +
+            '<td style="padding:4px 8px;text-align:center;">' + req + '</td>' +
+            '<td style="padding:4px 8px;text-align:center;color:#16a34a;font-weight:600;">' + done + '</td>' +
+            '<td style="padding:4px 8px;text-align:center;color:' + (pending > 0 ? "#dc2626" : "#16a34a") + ';font-weight:600;">' + pending + '</td>' +
+            '<td style="padding:4px 8px;text-align:center;">' +
+                '<span style="color:' + color + ';font-weight:700;">' + pct + '%</span>' +
+            '</td>' +
+            '</tr>';
     });
 
-    var pct = total_req > 0 ? Math.round((total_done / total_req) * 100) : 0;
-    var color = pct >= 100 ? "green" : pct > 0 ? "orange" : "gray";
-    var bar = "";
-    for (var i = 0; i < 10; i++) bar += i < Math.round(pct / 10) ? "█" : "░";
+    var overall_pct = total_req > 0 ? Math.round((total_done / total_req) * 100) : 0;
+    var overall_color = overall_pct >= 100 ? "#16a34a" : overall_pct > 0 ? "#d97706" : "#6b7280";
 
-    var html = '<div class="aqrar-fulfillment" style="padding:10px 15px;background:#f5f7fa;' +
-        'border-radius:6px;margin-bottom:10px;font-size:13px;">' +
-        '<strong>' + __("Fulfillment") + ':</strong> ' +
-        '<span style="color:' + (pct >= 100 ? '#16a34a' : pct > 0 ? '#d97706' : '#6b7280') + ';font-weight:bold;">' +
-        pct + '%</span> ' +
-        '(' + total_done + ' / ' + total_req + ' ' + __("transferred") + ') ' +
-        '<span style="font-family:monospace;">' + bar + '</span></div>';
+    var html = '<div class="aqrar-fulfillment" style="padding:10px 15px;background:#f5f7fa;border-radius:6px;margin-bottom:10px;">' +
+        '<div style="font-size:13px;font-weight:700;margin-bottom:8px;">' +
+            __("Fulfillment") + ': ' +
+            '<span style="color:' + overall_color + ';">' + overall_pct + '%</span>' +
+            ' <span style="font-weight:400;color:#555;">(' + total_done + ' / ' + total_req + ' ' + __("transferred") + ')</span>' +
+        '</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+            '<thead><tr style="background:#e5e7eb;">' +
+                '<th style="padding:4px 8px;text-align:left;">' + __("Item Code") + '</th>' +
+                '<th style="padding:4px 8px;text-align:left;">' + __("Item Name") + '</th>' +
+                '<th style="padding:4px 8px;text-align:center;">' + __("Requested") + '</th>' +
+                '<th style="padding:4px 8px;text-align:center;">' + __("Transferred") + '</th>' +
+                '<th style="padding:4px 8px;text-align:center;">' + __("Pending") + '</th>' +
+                '<th style="padding:4px 8px;text-align:center;">' + __("Progress") + '</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rows_html + '</tbody>' +
+        '</table>' +
+    '</div>';
 
     var $ctrl = $(frm.fields_dict.items.wrapper);
     $ctrl.prepend(html);
