@@ -27,7 +27,7 @@ class CustomPaymentEntry(PaymentEntry):
             {
                 "reference_no": self.reference_no,
                 "bank_account": self.bank_account,
-                "docstatus": 1,
+                "docstatus": ["in", [0, 1]],
                 "name": ("!=", self.name)
             },
             "name"
