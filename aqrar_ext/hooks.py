@@ -33,6 +33,7 @@ app_include_js = [
     "/assets/aqrar_ext/js/customer_statement.js",
     "/assets/aqrar_ext/js/stock_ledger_override.js",
     "/assets/aqrar_ext/js/material_request_custom.js",
+    
 ]
 
 # include js, css files in header of web template
@@ -50,7 +51,11 @@ app_include_js = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
+doctype_js = {
+    "Payment Entry": "public/js/payment_entry.js"
+}
 # doctype_js = {"doctype" : "public/js/doctype.js"}
+
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
