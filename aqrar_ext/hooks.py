@@ -12,15 +12,15 @@ app_license = "mit"
 # include js, css files in header of desk.html
 # app_include_css = "/assets/develop/css/develop.css"
 
-doctype_js = {
-	"Journal Entry": "public/js/journal_entry_commission.js",
-}
+# doctype_js = {
+# 	"Journal Entry": "public/js/journal_entry_commission.js",
+# }
 
 app_include_js = [
 	"/assets/aqrar_ext/js/item_selector.js",
 	"/assets/aqrar_ext/js/item_selector_hook.js",
 	"/assets/aqrar_ext/js/sales_invoice_pos_total_popup.js",
-    "/assets/sf_trading/js/workflowapproval.js",
+    "/assets/aqrar_ext/js/workflowapproval.js",
     "/assets/aqrar_ext/js/sales_invoice_return.js",
     "/assets/aqrar_ext/js/sales_invoice_branch_price_list.js",
     "/assets/aqrar_ext/js/auto_print_preview.js",
@@ -52,7 +52,9 @@ app_include_js = [
 
 # include js in doctype views
 doctype_js = {
-    "Payment Entry": "public/js/payment_entry.js"
+    "Payment Entry": "public/js/payment_entry.js",
+    "Item": "public/js/item.js",
+    "Journal Entry": "public/js/journal_entry_commission.js"
 }
 # doctype_js = {"doctype" : "public/js/doctype.js"}
 

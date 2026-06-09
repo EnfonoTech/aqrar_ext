@@ -1,7 +1,3 @@
-
-// Adds a pending count badge next to the "Work Flow Approval" shortcut
-// on any workspace, matching the native ERPNext shortcut count style.
-
 frappe.provide("aqrar_ext.wf_shortcut");
 
 aqrar_ext.wf_shortcut.update_count = function() {
@@ -10,23 +6,17 @@ aqrar_ext.wf_shortcut.update_count = function() {
             return $(this).text().trim().toLowerCase().includes("work flow approval")
                 || $(this).text().trim().toLowerCase().includes("workflow approval");
         });
-
     if (!$links.length) return;
 
     frappe.call({
-        method: "aqrar_ext.aqrar_ext.report.work_flow_approval.work_flow_approval.get_pending_approval_count",
+        method: "aqrar_ext.api.workflow.get_pending_approval_count",
         callback: function(r) {
             let count = r.message || 0;
-
             $('.shortcut-widget-box').each(function() {
                 let $box = $(this);
                 let txt = $box.find('.widget-title, a').first().text().trim().toLowerCase();
                 if (!txt.includes("work flow approval") && !txt.includes("workflow approval")) return;
-
-                // Remove any previous injected badge
                 $box.find('.wf-pending-count').remove();
-
-                // Build badge in the same style as ERPNext's native shortcut count
                 let $badge = $(`<span class="wf-pending-count" style="
                     display:inline-block;
                     margin-left:8px;
@@ -38,8 +28,6 @@ aqrar_ext.wf_shortcut.update_count = function() {
                     font-weight:500;
                     vertical-align:middle;
                 ">${count}</span>`);
-
-                // Append to the title/link
                 let $target = $box.find('.widget-title').first();
                 if (!$target.length) $target = $box.find('a').first();
                 $target.append($badge);
@@ -48,15 +36,13 @@ aqrar_ext.wf_shortcut.update_count = function() {
     });
 };
 
-// Run after route changes (workspace navigation) and on initial load
 $(document).on("page-change app_ready", function() {
     setTimeout(aqrar_ext.wf_shortcut.update_count, 600);
-    setTimeout(aqrar_ext.wf_shortcut.update_count, 1500); // retry for slow loads
+    setTimeout(aqrar_ext.wf_shortcut.update_count, 1500);
 });
 
 frappe.after_ajax(function() {
     setTimeout(aqrar_ext.wf_shortcut.update_count, 1000);
 });
 
-// Refresh every 60 seconds while the page is open
 setInterval(aqrar_ext.wf_shortcut.update_count, 60000);
