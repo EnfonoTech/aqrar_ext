@@ -1,19 +1,18 @@
 import frappe
 from erpnext.stock.doctype.item.item import Item
 
-
 class CustomItem(Item):
 
     def validate(self):
         self._skip_uom_validation = True
         super().validate()
+        self.validate_uom()  # ✅ Added
 
     def validate_uom(self):
         if self.is_new():
             return
 
         old_uom = frappe.db.get_value("Item", self.name, "stock_uom")
-
         if not old_uom or old_uom == self.stock_uom:
             return
 
@@ -24,16 +23,13 @@ class CustomItem(Item):
                 "is_cancelled": 0
             }
         )
-
         if sle_count == 0:
             return
 
-        # Check admin using session user directly
         user = frappe.session.user
         is_admin = user == "Administrator"
 
         if not is_admin:
-            # Check System Manager role via DB
             has_role = frappe.db.exists(
                 "Has Role",
                 {"parent": user, "role": "System Manager"}
@@ -47,14 +43,12 @@ class CustomItem(Item):
                 "Contact your administrator to override.",
                 title="UOM Locked"
             )
-
         elif not self.custom_uom_override_reason:
             frappe.throw(
                 "Please use the Override UOM (Admin) button and provide "
                 "a reason before changing the Default UOM.",
                 title="Override Reason Required"
             )
-
         else:
             comment_text = (
                 "UOM Override by " + str(user)
