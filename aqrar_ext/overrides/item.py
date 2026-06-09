@@ -45,7 +45,7 @@ class CustomItem(Item):
             )
         elif not self.custom_uom_override_reason:
             frappe.throw(
-                "Please use the Override UOM (Admin) button and provide "
+                "Please use the Override UOM Admin and provide "
                 "a reason before changing the Default UOM.",
                 title="Override Reason Required"
             )
