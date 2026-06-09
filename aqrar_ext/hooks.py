@@ -145,7 +145,8 @@ doctype_js = {
 override_doctype_class = {
     "Payment Entry": "aqrar_ext.overrides.payment_entry.CustomPaymentEntry",
     "Item": "aqrar_ext.overrides.item.CustomItem",
-    "Quotation": "aqrar_ext.overrides.quotation.CustomQuotation"
+    "Quotation": "aqrar_ext.overrides.quotation.CustomQuotation",
+    "Sales Invoice": "aqrar_ext.overrides.sales_invoice.CustomSalesInvoice" 
 }
 # override_doctype_class = {
 # 	"ToDo": "custom_app.overrides.CustomToDo"
