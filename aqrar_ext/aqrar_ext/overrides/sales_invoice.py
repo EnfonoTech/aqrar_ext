@@ -31,14 +31,7 @@ def before_save(doc, event=None):
 
 
 def before_print(doc, event=None, print_settings=None):
-	"""Apply item_display_mode before print — modifies items in-memory.
-
-	Attaches _item_display_mode to doc so templates can read it without
-	needing any Jinja sandbox ORM calls."""
-	mode = frappe.db.get_value(
-		"Aqrar Settings", "Aqrar Settings", "item_display_mode"
-	) or "Item Name + Description"
-
+	mode = (print_settings or {}).get("item_display_mode") or "Item Name + Description"
 	doc._item_display_mode = mode
 
 	for item in doc.items:

@@ -566,11 +566,17 @@ frappe.ui.form.on("Sales Invoice", {
             "po_no", "po_date", "commission_rate", "total_commission", "sales_partner",
             "amount_eligible_for_commission",
             "is_cash_or_non_trade_discount",
+            // accounting_dimensions_section fields — hide all except project
+            "dimension_col_break", "cost_center", "is_consolidated", "is_internal_customer",
+            "company_tax_id", "unrealized_profit_loss_account", "represents_company",
+            "disable_rounded_total", "dispatch_address_name", "dispatch_address",
+            "ignore_default_payment_terms_template", "total_billing_hours",
+            "subscription",
         ].forEach(function (f) { frm.set_df_property(f, "hidden", 1); });
 
-        // Hide sections
+        // Hide sections (accounting_dimensions_section kept visible so project field shows)
         [
-            "accounting_dimensions_section", "currency_and_price_list",
+            "currency_and_price_list",
             "section_break_49", "taxes_section", "customer_po_details",
             "more_info", "sales_team_section_break", "section_break2",
             "edit_printing_settings", "more_information", "subscription_section",

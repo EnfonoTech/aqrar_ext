@@ -63,6 +63,7 @@ def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, i
 			"name", "item_code", "price_list", "uom",
 			"price_list_rate", "custom_minimum_selling_rate",
 			"customer", "supplier",
+			"owner", "creation", "modified_by", "modified",
 		],
 	)
 
@@ -75,6 +76,10 @@ def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, i
 				"rate": p.price_list_rate,
 				"min_rate": p.custom_minimum_selling_rate,
 				"uom": p.uom,
+				"owner": p.owner,
+				"creation": str(p.creation),
+				"modified_by": p.modified_by,
+				"modified": str(p.modified),
 			}
 
 	columns = [
@@ -111,6 +116,8 @@ def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, i
 @frappe.whitelist()
 def save_cell(item_code, price_list, uom, rate, min_rate=None):
 	"""Create or update a single Item Price row."""
+	with open("/tmp/ple_debug.log", "a") as _f:
+		_f.write(f"save_cell: item={item_code} pl={price_list} rate={rate} min={min_rate}\n")
 	rate = flt(rate)
 	min_rate = flt(min_rate) if min_rate not in (None, "", 0) else None
 
@@ -125,10 +132,17 @@ def save_cell(item_code, price_list, uom, rate, min_rate=None):
 	)
 
 	if existing:
-		update = {"price_list_rate": rate}
+		old_doc = frappe.get_doc("Item Price", existing)
+		old_rate = flt(old_doc.price_list_rate)
+		old_min  = flt(old_doc.custom_minimum_selling_rate)
+
+		old_doc.price_list_rate = rate
 		if min_rate is not None:
-			update["custom_minimum_selling_rate"] = min_rate
-		frappe.db.set_value("Item Price", existing, update)
+			old_doc.custom_minimum_selling_rate = min_rate
+		old_doc.flags.ignore_version = True   # we write the version ourselves
+		old_doc.save(ignore_permissions=True)
+
+		_write_version(existing, old_rate, rate, old_min, min_rate)
 		return {"name": existing, "action": "updated"}
 
 	doc = frappe.get_doc({
@@ -142,3 +156,94 @@ def save_cell(item_code, price_list, uom, rate, min_rate=None):
 	})
 	doc.save(ignore_permissions=True)
 	return {"name": doc.name, "action": "created"}
+
+
+def _write_version(item_price_name, old_rate, new_rate, old_min, new_min):
+	"""Always write a Version record for rate/min changes made from the bulk editor."""
+	import json as _json
+
+	changed = []
+	if flt(old_rate) != flt(new_rate):
+		changed.append(["price_list_rate", flt(old_rate), flt(new_rate)])
+	if new_min is not None and flt(old_min) != flt(new_min):
+		changed.append(["custom_minimum_selling_rate", flt(old_min), flt(new_min)])
+
+	if not changed:
+		return
+
+	with open("/tmp/ple_debug.log", "a") as _f:
+		_f.write(f"_write_version: name={item_price_name} old={old_rate} new={new_rate} changed={changed}\n")
+	try:
+		frappe.db.sql(
+			"""INSERT INTO `tabVersion`
+			   (name, creation, modified, modified_by, owner, docstatus, idx,
+			    ref_doctype, docname, data)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, 'Item Price', %s, %s)""",
+			(
+				frappe.generate_hash(length=10),
+				frappe.session.user,
+				frappe.session.user,
+				item_price_name,
+				_json.dumps({"added": [], "changed": changed, "removed": [], "row_changed": []}),
+			),
+			auto_commit=True,
+		)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "PLE _write_version failed")
+
+
+@frappe.whitelist()
+def get_item_price_history(item_price_name):
+	"""Return creation/modification metadata and version log for an Item Price."""
+	frappe.has_permission("Item Price", ptype="read", doc=item_price_name, throw=True)
+
+	ip = frappe.db.get_value(
+		"Item Price",
+		item_price_name,
+		["owner", "creation", "modified_by", "modified",
+		 "item_code", "price_list", "price_list_rate", "custom_minimum_selling_rate"],
+		as_dict=True,
+	)
+	if not ip:
+		frappe.throw(_("Item Price {0} not found").format(item_price_name))
+
+	versions = frappe.get_all(
+		"Version",
+		filters={"ref_doctype": "Item Price", "docname": item_price_name},
+		fields=["owner", "creation", "data"],
+		order_by="creation desc",
+		limit=20,
+	)
+
+	log = []
+	for v in versions:
+		entry = {
+			"user": v.owner,
+			"date": str(v.creation),
+			"changes": [],
+		}
+		try:
+			import json
+			data = json.loads(v.data or "{}")
+			for changed in data.get("changed", []):
+				field = changed[0]
+				if field in ("price_list_rate", "custom_minimum_selling_rate"):
+					entry["changes"].append({
+						"field": "Rate" if field == "price_list_rate" else "Min Price",
+						"from": changed[1],
+						"to": changed[2],
+					})
+		except Exception:
+			pass
+		log.append(entry)
+
+	return {
+		"item_price_name": item_price_name,
+		"item_code": ip.item_code,
+		"price_list": ip.price_list,
+		"created_by": ip.owner,
+		"created_on": str(ip.creation),
+		"modified_by": ip.modified_by,
+		"modified_on": str(ip.modified),
+		"log": log,
+	}

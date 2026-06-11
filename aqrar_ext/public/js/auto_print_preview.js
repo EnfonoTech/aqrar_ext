@@ -67,7 +67,10 @@ function init_or_refresh_preview(frm) {
 
     var existing = footer.find(".auto-print-preview");
     if (existing.length) {
-        refresh_iframe(frm, existing);
+        // Only reload iframe if preview is currently visible
+        if (existing.find(".preview-body").is(":visible")) {
+            refresh_iframe(frm, existing);
+        }
         return;
     }
 
@@ -84,7 +87,7 @@ function init_or_refresh_preview(frm) {
             '</select>' +
             '</div>' +
             '<div style="display: flex; gap: 6px;">' +
-            '<button class="btn btn-xs btn-default btn-toggle-preview">' + __("Hide") + '</button>' +
+            '<button class="btn btn-xs btn-default btn-toggle-preview">' + __("Show") + '</button>' +
             '<button class="btn btn-xs btn-default btn-close-preview">' + __("Close") + '</button>' +
             '</div>' +
             '</div>' +
@@ -96,38 +99,36 @@ function init_or_refresh_preview(frm) {
 
         footer.append(panel);
 
+        // Start collapsed — body hidden, iframe not loaded yet
+        panel.find(".preview-body").hide();
+        panel.find(".preview-format-select").closest("div").hide();
+
         // Default to Sales Invoice Aqrar when available
         if (frm.doc.doctype === "Sales Invoice" && formats.indexOf("Sales Invoice Aqrar") !== -1) {
             panel.find(".preview-format-select").val("Sales Invoice Aqrar");
         }
 
-        // Format selector change
+        // Format selector change — reload iframe
         panel.find(".preview-format-select").on("change", function () {
             refresh_iframe(frm, panel);
         });
 
-        // Toggle show/hide
+        // Toggle show/hide — load iframe on first show
         panel.find(".btn-toggle-preview").on("click", function () {
             var body = panel.find(".preview-body");
+            var formatBar = panel.find(".preview-format-select").closest("div");
             var btn = $(this);
             if (body.is(":visible")) {
                 body.hide();
+                formatBar.hide();
                 btn.text(__("Show"));
             } else {
                 body.show();
+                formatBar.show();
                 btn.text(__("Hide"));
+                refresh_iframe(frm, panel);
             }
         });
-
-        // Close — collapse to header bar so preview can be reopened
-        panel.find(".btn-close-preview").on("click", function () {
-            var body = panel.find(".preview-body");
-            var toggle_btn = panel.find(".btn-toggle-preview");
-            body.hide();
-            toggle_btn.text(__("Show"));
-        });
-
-        refresh_iframe(frm, panel);
     });
 }
 
