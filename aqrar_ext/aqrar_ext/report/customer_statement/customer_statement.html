@@ -40,13 +40,35 @@
     <div class="statement-header">
         <div class="lang-en">
             <h2>{{ _("Customer Statement") }}</h2>
-            <p><strong>{{ customer_doc.customer_name }}</strong></p>
-            <p>{{ _("Company") }}: {{ company }}</p>
+            <p>{{ _("Company") }}: <strong>{{ company }}</strong></p>
+            <p>{{ _("Customer") }}: <strong>{{ customer_doc.customer_name }}</strong></p>
+            {% if customer_address %}
+            <p>{{ _("Address") }}:
+                {{ customer_address.address_line1 or "" }}
+                {% if customer_address.address_line2 %}, {{ customer_address.address_line2 }}{% endif %}
+                {% if customer_address.city %}, {{ customer_address.city }}{% endif %}
+                {% if customer_address.country %}, {{ customer_address.country }}{% endif %}
+            </p>
+            {% endif %}
+            {% if customer_doc.tax_id %}
+            <p>{{ _("VAT No") }}: <strong>{{ customer_doc.tax_id }}</strong></p>
+            {% endif %}
         </div>
         <div class="lang-ar">
             <h2>كشف حساب العميل</h2>
-            <p><strong>{{ customer_doc.get("customer_name_in_arabic") or customer_doc.customer_name }}</strong></p>
-            <p>الشركة: {{ company }}</p>
+            <p>الشركة: <strong>{{ company }}</strong></p>
+            <p>العميل: <strong>{{ customer_doc.get("customer_name_in_arabic") or customer_doc.customer_name }}</strong></p>
+            {% if customer_address %}
+            <p>العنوان:
+                {{ customer_address.address_line1 or "" }}
+                {% if customer_address.address_line2 %}، {{ customer_address.address_line2 }}{% endif %}
+                {% if customer_address.city %}، {{ customer_address.city }}{% endif %}
+                {% if customer_address.country %}، {{ customer_address.country }}{% endif %}
+            </p>
+            {% endif %}
+            {% if customer_doc.tax_id %}
+            <p>الرقم الضريبي: <strong>{{ customer_doc.tax_id }}</strong></p>
+            {% endif %}
         </div>
     </div>
 

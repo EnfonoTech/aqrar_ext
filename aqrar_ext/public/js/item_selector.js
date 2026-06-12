@@ -29,6 +29,17 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                     },
                 },
                 {
+                    fieldtype: "Link",
+                    fieldname: "warehouse",
+                    label: __("Warehouse"),
+                    options: "Warehouse",
+                    onchange: function () {
+                        me.active_warehouse = me.dialog.fields_dict.warehouse.get_value() || "";
+                        me.start = 0;
+                        me.search();
+                    },
+                },
+                {
                     fieldtype: "HTML",
                     fieldname: "results_area",
                 },
@@ -40,7 +51,33 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         });
 
         this.dialog.show();
-        this.search();
+
+        // Resolve warehouse, set on dialog, then load
+        this._resolve_warehouse(function(warehouse) {
+            me.active_warehouse = warehouse;
+            if (warehouse) {
+                me.dialog.fields_dict.warehouse.set_value(warehouse);
+            }
+            me.search();
+        });
+    }
+
+    _resolve_warehouse(callback) {
+        var me = this;
+        var existing_items = cur_frm.doc[me.target.df.fieldname] || [];
+        var first_item_wh  = (existing_items.find(function(d) { return d.warehouse; }) || {}).warehouse || "";
+        var warehouse = cur_frm.doc.set_warehouse || cur_frm.doc.set_source_warehouse || first_item_wh || "";
+
+        if (warehouse) {
+            callback(warehouse);
+        } else {
+            frappe.call({
+                method: "aqrar_ext.api.branch_config.get_user_branch_defaults",
+                callback: function(r) {
+                    callback((r.message && r.message.warehouse) || "");
+                }
+            });
+        }
     }
 
     debounced_search() {
@@ -156,8 +193,14 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
 
             // Qty change
             row.find(".item-qty").on("change input", function () {
-                var code = $(this).attr("data-item");
-                var val = parseFloat($(this).val()) || 0;
+                var code  = $(this).attr("data-item");
+                var val   = parseFloat($(this).val()) || 0;
+                var max   = parseFloat($(this).attr("max"));
+                if (!isNaN(max) && val > max) {
+                    val = max;
+                    $(this).val(max);
+                    frappe.show_alert({ message: __("Qty cannot exceed available stock ({0})", [max]), indicator: "orange" }, 3);
+                }
                 if (row.find(".item-check").is(":checked")) {
                     me.selected[code] = val;
                 }
@@ -186,17 +229,15 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
     load_stock_info(item_codes) {
         if (!item_codes.length) return;
         var me = this;
+        me.stock_map = {};
+        me._do_stock_fetch(item_codes, me.active_warehouse || "");
+    }
 
-        var warehouse = (
-            cur_frm.doc.set_warehouse ||
-            cur_frm.doc.set_source_warehouse ||
-            ""
-        );
+    _do_stock_fetch(item_codes, warehouse) {
+        var me = this;
 
         var filters = { item_code: ["in", item_codes] };
-        if (warehouse) {
-            filters.warehouse = warehouse;
-        }
+        if (warehouse) filters.warehouse = warehouse;
 
         frappe.call({
             method: "frappe.client.get_list",
@@ -207,29 +248,32 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                 limit_page_length: 500,
             },
             callback: function (r) {
-                if (!r.message) {
-                    // API failed — show "--" for all items
-                    item_codes.forEach(function (code) {
-                        var badge = me.dialog.$wrapper.find('.stock-badge[data-item="' + code + '"]');
-                        badge.text("--").removeClass().addClass("stock-badge badge");
-                    });
-                    return;
-                }
-                // Sum actual_qty per item_code (across warehouses when no filter)
-                var stock_map = {};
-                r.message.forEach(function (b) {
-                    var code = b.item_code;
-                    stock_map[code] = (stock_map[code] || 0) + (b.actual_qty || 0);
+                // Build a fresh map — sum across warehouses when no specific warehouse
+                var fetched = {};
+                (r.message || []).forEach(function(b) {
+                    fetched[b.item_code] = (fetched[b.item_code] || 0) + (b.actual_qty || 0);
                 });
-                item_codes.forEach(function (code) {
-                    var badge = me.dialog.$wrapper.find('.stock-badge[data-item="' + code + '"]');
-                    if (stock_map[code] === undefined) {
+
+                item_codes.forEach(function(code) {
+                    var badge   = me.dialog.$wrapper.find('.stock-badge[data-item="' + code + '"]');
+                    var qty_inp = me.dialog.$wrapper.find('.item-qty[data-item="' + code + '"]');
+                    var stock   = fetched[code];
+
+                    if (stock === undefined || stock <= 0) {
                         badge.text("0").removeClass().addClass("stock-badge badge");
-                    } else if (stock_map[code] <= 0) {
-                        badge.text("0").removeClass().addClass("stock-badge badge");
+                        // No stock — cap qty at 0 and disable input
+                        qty_inp.attr("max", 0).val(0);
+                        if (me.selected[code] !== undefined) me.selected[code] = 0;
                     } else {
-                        badge.text(stock_map[code]).removeClass().addClass("stock-badge badge");
+                        badge.text(stock).removeClass().addClass("stock-badge badge");
+                        // Cap qty input at available stock
+                        qty_inp.attr("max", stock);
+                        if (parseFloat(qty_inp.val()) > stock) {
+                            qty_inp.val(stock);
+                            if (me.selected[code] !== undefined) me.selected[code] = stock;
+                        }
                     }
+                    me.stock_map[code] = stock !== undefined ? stock : 0;
                 });
             },
         });
@@ -257,6 +301,10 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             frappe.msgprint(__("All selected items have qty 0."));
             return;
         }
+
+        // Pre-collect empty rows before async adds begin
+        me._empty_rows_to_fill = (me.target.frm.doc[me.target.df.fieldname] || [])
+            .filter(function (d) { return !d[me.item_field]; });
 
         // Add rows sequentially
         var chain = Promise.resolve();
@@ -287,9 +335,9 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                     .set_value(existing.doctype, existing.name, me.qty_field, qty)
                     .then(function () { resolve(); });
             } else {
-                var d = me.target.add_new_row();
-                // Set item_code first so item details are fetched,
-                // then set qty to prevent it being overwritten by item defaults
+                // Use pre-collected empty row if available, otherwise add new
+                var empty_row = me._empty_rows_to_fill && me._empty_rows_to_fill.shift();
+                var d = empty_row || me.target.add_new_row();
                 frappe.timeout(0.1).then(function () {
                     var item_args = {};
                     item_args[me.item_field] = item_code;

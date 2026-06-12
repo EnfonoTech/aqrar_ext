@@ -31,9 +31,8 @@ app_include_js = [
     "/assets/aqrar_ext/js/sales_invoice_payment_terms.js",
     "/assets/aqrar_ext/js/customer_price_history.js",
     "/assets/aqrar_ext/js/customer_statement.js",
-    "/assets/aqrar_ext/js/stock_ledger_override.js",
     "/assets/aqrar_ext/js/material_request_custom.js",
-    
+    "/assets/aqrar_ext/js/purchase_receipt_final_grn.js",
 ]
 
 # include js, css files in header of web template
@@ -326,8 +325,6 @@ fixtures = [
 				"name",
 				"in",
 				[
-					# Sales Invoice
-					"Sales Invoice-custom_payment_mode",
 					# CR-015: Price List Bulk Editor & Min Price
 					"Item Price-custom_minimum_selling_rate",
 										"Price List-custom_branch",
@@ -342,10 +339,21 @@ fixtures = [
 				"User-custom_enable_sound_alerts",
 				# CR-020: Item naming series per item group
 				"Item Group-custom_default_item_naming_series",
-				# CR-017: Approval Workflows — workflow_state fields
+				# CR-013: Material Request tracking
+					"Material Request-custom_urgent",
+					"Material Request-custom_close_reason",
+					# CR-017: Approval Workflows — workflow_state fields
 					"Stock Entry-workflow_state",
 					"Journal Entry-workflow_state",
 					"Payment Entry-workflow_state",
+					# CR-006: Per-customer last-sold price column
+					"Sales Invoice Item-custom_last_price",
+					"Sales Order Item-custom_last_price",
+					"Quotation Item-custom_last_price",
+					"Delivery Note Item-custom_last_price",
+					"Purchase Invoice Item-custom_last_price",
+					"Purchase Order Item-custom_last_price",
+					"Purchase Receipt Item-custom_last_price",
 									],
 			]
 		]
