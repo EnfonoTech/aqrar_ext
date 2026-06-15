@@ -163,10 +163,22 @@ frappe.pages["price-list-bulk-editor"].on_page_load = function (wrapper) {
 					var info = cell && typeof cell === "object" ? cell : {};
 					var rate = info.rate != null ? info.rate : "";
 					var minr = info.min_rate != null ? info.min_rate : "";
+					var has_record = !!info.item_price_name;
 					h += '<td class="ple-edit' + sticky_cls + '" data-ri="' + ri + '" data-ci="' + ci + '">';
+					h += '<div class="ple-cell-wrap">';
 					h += '<div class="ple-cell-stack">';
-					h += '<input type="text" inputmode="decimal" class="ple-inp-rate" value="' + rate + '" placeholder="' + __("Rate") + '">';
-					h += '<input type="text" inputmode="decimal" class="ple-inp-min"  value="' + minr + '" placeholder="' + __("Min") + '">';
+					h += '<div class="ple-inp-row">';
+					h += '<span class="ple-inp-label ple-label-rate">' + __("Rate") + '</span>';
+					h += '<input type="text" inputmode="decimal" class="ple-inp-rate" value="' + rate + '">';
+					h += '</div>';
+					h += '<div class="ple-inp-row ple-inp-row-min">';
+					h += '<span class="ple-inp-label ple-label-min">' + __("Min") + '</span>';
+					h += '<input type="text" inputmode="decimal" class="ple-inp-min" value="' + minr + '">';
+					h += '</div>';
+					h += '</div>';
+					if (has_record) {
+						h += '<button class="ple-hist-btn" title="' + __("View history") + '" data-ip="' + frappe.utils.escape_html(info.item_price_name) + '">&#128337;</button>';
+					}
 					h += '</div>';
 					h += '</td>';
 				}
@@ -192,6 +204,11 @@ frappe.pages["price-list-bulk-editor"].on_page_load = function (wrapper) {
 				$(this).blur();
 			}
 		});
+
+		$shell.find(".ple-hist-btn").off("click").on("click", function (e) {
+			e.stopPropagation();
+			show_history($(this).attr("data-ip"));
+		});
 	}
 
 	function save_cell($td) {
@@ -216,6 +233,16 @@ frappe.pages["price-list-bulk-editor"].on_page_load = function (wrapper) {
 		if (isNaN(new_rate) || new_rate < 0) { $rate_inp.val(old_rate || ""); return; }
 		if (isNaN(new_min)  || new_min  < 0) { $min_inp.val(old_min || "");   return; }
 		if (new_rate === old_rate && new_min === old_min) return;
+
+		if (!isNaN(new_min) && !isNaN(new_rate) && new_min > new_rate) {
+			$min_inp.val(old_min || "").addClass("ple-inp-invalid");
+			setTimeout(function () { $min_inp.removeClass("ple-inp-invalid"); }, 2000);
+			frappe.show_alert({
+				message: __("Min price ({0}) cannot be higher than the rate ({1})").replace("{0}", new_min).replace("{1}", new_rate),
+				indicator: "red",
+			});
+			return;
+		}
 
 		$td.addClass("ple-saving");
 
@@ -249,6 +276,100 @@ frappe.pages["price-list-bulk-editor"].on_page_load = function (wrapper) {
 					message: __("Failed to save") + ": " + row[0] + " → " + col.price_list,
 					indicator: "red",
 				});
+			},
+		});
+	}
+
+	function avatar_html(email) {
+		var initials = (email || "?").split("@")[0].substring(0, 2).toUpperCase();
+		var colors = ["#2490ef","#7c3aed","#059669","#d97706","#dc2626","#0891b2","#be185d"];
+		var color = colors[(email || "").charCodeAt(0) % colors.length];
+		return '<span class="ple-tl-avatar" style="background:' + color + '">' + initials + '</span>';
+	}
+
+	function show_history(item_price_name) {
+		frappe.call({
+			method: "aqrar_ext.aqrar_ext.page.price_list_bulk_editor.price_list_bulk_editor.get_item_price_history",
+			args: { item_price_name: item_price_name },
+			callback: function (r) {
+				var h = r.message;
+				if (!h) return;
+
+				var fmt_date = function (d) {
+					return d ? frappe.datetime.str_to_user(d.substring(0, 19)) : "—";
+				};
+				var short_user = function (u) {
+					return (u || "—").split("@")[0];
+				};
+
+				// meta bar
+				var body = '<div class="ple-hist-modal">';
+				body += '<div class="ple-tl-meta">';
+				body += '<div class="ple-tl-meta-row"><span class="ple-tl-meta-label">' + __("Price List") + '</span><span class="ple-tl-meta-val">' + frappe.utils.escape_html(h.price_list) + '</span></div>';
+				body += '<div class="ple-tl-meta-row"><span class="ple-tl-meta-label">' + __("Item") + '</span><span class="ple-tl-meta-val">' + frappe.utils.escape_html(h.item_code) + '</span></div>';
+				body += '</div>';
+
+				// timeline
+				body += '<div class="ple-tl-section-label">' + __("Activity") + '</div>';
+				body += '<div class="ple-tl">';
+
+				// creation event (always first)
+				body += '<div class="ple-tl-item ple-tl-created">';
+				body += '<div class="ple-tl-left"><div class="ple-tl-line"></div><div class="ple-tl-dot"></div></div>';
+				body += '<div class="ple-tl-body">';
+				body += '<div class="ple-tl-header">' + avatar_html(h.created_by);
+				body += '<span class="ple-tl-user">' + frappe.utils.escape_html(short_user(h.created_by)) + '</span>';
+				body += '<span class="ple-tl-action">' + __("created this price") + '</span>';
+				body += '<span class="ple-tl-date">' + fmt_date(h.created_on) + '</span>';
+				body += '</div>';
+				body += '</div></div>';
+
+				// version change entries
+				if (h.log && h.log.length) {
+					h.log.forEach(function (entry) {
+						body += '<div class="ple-tl-item">';
+						body += '<div class="ple-tl-left"><div class="ple-tl-line"></div><div class="ple-tl-dot ple-tl-dot-edit"></div></div>';
+						body += '<div class="ple-tl-body">';
+						body += '<div class="ple-tl-header">' + avatar_html(entry.user);
+						body += '<span class="ple-tl-user">' + frappe.utils.escape_html(short_user(entry.user)) + '</span>';
+						body += '<span class="ple-tl-action">' + __("updated") + '</span>';
+						body += '<span class="ple-tl-date">' + fmt_date(entry.date) + '</span>';
+						body += '</div>';
+						if (entry.changes && entry.changes.length) {
+							body += '<div class="ple-tl-changes">';
+							entry.changes.forEach(function (c) {
+								var from_v = c.from != null ? c.from : "—";
+								var to_v   = c.to   != null ? c.to   : "—";
+								var arrow_cls = parseFloat(to_v) > parseFloat(from_v) ? "ple-ch-up" : "ple-ch-down";
+								body += '<div class="ple-tl-change">';
+								body += '<span class="ple-ch-field">' + frappe.utils.escape_html(c.field) + '</span>';
+								body += '<span class="ple-ch-from">' + frappe.utils.escape_html(String(from_v)) + '</span>';
+								body += '<span class="ple-ch-arrow ' + arrow_cls + '">→</span>';
+								body += '<span class="ple-ch-to">' + frappe.utils.escape_html(String(to_v)) + '</span>';
+								body += '</div>';
+							});
+							body += '</div>';
+						}
+						body += '</div></div>';
+					});
+				} else {
+					body += '<div class="ple-tl-item">';
+					body += '<div class="ple-tl-left"><div class="ple-tl-line"></div><div class="ple-tl-dot ple-tl-dot-edit"></div></div>';
+					body += '<div class="ple-tl-body"><div class="ple-tl-no-log">' + __("No changes recorded yet.") + '</div></div>';
+					body += '</div>';
+				}
+
+				body += '</div></div>'; // close .ple-tl and .ple-hist-modal
+
+				var d = new frappe.ui.Dialog({
+					title: __("Price History") + " · " + frappe.utils.escape_html(h.item_code),
+					fields: [{ fieldtype: "HTML", options: body }],
+					size: "small",
+				});
+				d.show();
+			},
+			error: function () {
+				frappe.show_alert({ message: __("Could not load history."), indicator: "red" });
 			},
 		});
 	}
