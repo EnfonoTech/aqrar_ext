@@ -94,7 +94,26 @@
 .ple-table tr:hover td { background: #eef4fc !important; }
 
 .ple-edit { padding: 2px 4px !important; }
-.ple-cell-stack { display: flex; flex-direction: column; gap: 2px; min-width: 100px; }
+.ple-cell-stack { display: flex; flex-direction: column; gap: 2px; min-width: 110px; }
+
+.ple-inp-row {
+	display: flex;
+	align-items: center;
+	gap: 3px;
+}
+.ple-inp-label {
+	font-size: 9px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: .4px;
+	flex-shrink: 0;
+	width: 22px;
+	text-align: right;
+	user-select: none;
+}
+.ple-label-rate { color: #374151; }
+.ple-label-min  { color: #9ca3af; }
+.ple-inp-row-min .ple-inp-min { color: #6b7280; }
 
 .ple-inp-min,
 .ple-inp-rate {
@@ -123,6 +142,93 @@
 	box-shadow: 0 0 0 2px rgba(36, 144, 239, .10);
 	background: #fff;
 }
+
+.ple-inp-invalid {
+	border-color: #ef4444 !important;
+	background: #fef2f2 !important;
+	box-shadow: 0 0 0 2px rgba(239, 68, 68, .15) !important;
+}
+
+/* history button */
+.ple-cell-wrap {
+	display: flex;
+	align-items: flex-start;
+	gap: 3px;
+}
+.ple-hist-btn {
+	flex-shrink: 0;
+	background: none;
+	border: none;
+	cursor: pointer;
+	font-size: 13px;
+	opacity: 0;
+	padding: 1px 2px;
+	line-height: 1;
+	color: #6b7280;
+	transition: opacity .15s, color .15s;
+	margin-top: 3px;
+}
+td:hover .ple-hist-btn { opacity: 1; }
+.ple-hist-btn:hover { color: #2490ef; }
+
+/* history modal — timeline design */
+.ple-hist-modal { font-size: 13px; padding: 2px 0 8px 0; }
+
+/* meta bar */
+.ple-tl-meta { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 12px; margin-bottom: 14px; }
+.ple-tl-meta-row { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; }
+.ple-tl-meta-label { font-size: 11px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: .4px; min-width: 72px; }
+.ple-tl-meta-val { font-size: 12px; font-weight: 500; color: #1f2937; }
+
+.ple-tl-section-label {
+	font-size: 11px; font-weight: 600; text-transform: uppercase;
+	letter-spacing: .5px; color: #9ca3af; margin-bottom: 8px;
+}
+
+/* timeline */
+.ple-tl { display: flex; flex-direction: column; }
+.ple-tl-item { display: flex; gap: 10px; position: relative; }
+.ple-tl-left { display: flex; flex-direction: column; align-items: center; width: 20px; flex-shrink: 0; }
+.ple-tl-line { width: 2px; background: #e5e7eb; flex: 1; min-height: 8px; }
+.ple-tl-item:last-child .ple-tl-line { display: none; }
+.ple-tl-dot {
+	width: 10px; height: 10px; border-radius: 50%;
+	background: #2490ef; border: 2px solid #fff;
+	box-shadow: 0 0 0 2px #bfdbfe;
+	flex-shrink: 0; margin: 4px 0;
+}
+.ple-tl-dot-edit { background: #7c3aed; box-shadow: 0 0 0 2px #ddd6fe; }
+.ple-tl-item.ple-tl-created .ple-tl-dot { background: #059669; box-shadow: 0 0 0 2px #a7f3d0; }
+
+.ple-tl-body { padding-bottom: 14px; flex: 1; }
+.ple-tl-header { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.ple-tl-avatar {
+	width: 22px; height: 22px; border-radius: 50%;
+	display: inline-flex; align-items: center; justify-content: center;
+	font-size: 9px; font-weight: 700; color: #fff;
+	flex-shrink: 0;
+}
+.ple-tl-user { font-weight: 600; color: #1f2937; font-size: 12px; }
+.ple-tl-action { color: #6b7280; font-size: 12px; }
+.ple-tl-date { color: #9ca3af; font-size: 11px; margin-left: auto; white-space: nowrap; }
+
+/* change pills */
+.ple-tl-changes { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.ple-tl-change {
+	display: inline-flex; align-items: center; gap: 5px;
+	background: #f9fafb; border: 1px solid #e5e7eb;
+	border-radius: 4px; padding: 3px 8px;
+	font-size: 11px;
+}
+.ple-ch-field { font-weight: 600; color: #374151; }
+.ple-ch-from { color: #9ca3af; text-decoration: line-through; }
+.ple-ch-arrow { font-weight: 700; font-size: 10px; }
+.ple-ch-up   { color: #059669; }
+.ple-ch-down { color: #dc2626; }
+.ple-ch-to   { font-weight: 600; color: #1f2937; }
+
+.ple-tl-no-log { color: #9ca3af; font-size: 12px; font-style: italic; padding: 2px 0 12px 0; }
 
 .ple-saving { background: #fef9e7 !important; }
 .ple-saving .ple-inp-min,
