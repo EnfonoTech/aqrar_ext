@@ -1,6 +1,6 @@
 // aqrar_ext: Wire ItemMultiSelector into Sales Invoice, Quotation, Custom Quote
 
-var doctypes_with_items = ["Sales Invoice", "Quotation", "Custom Quote"];
+var doctypes_with_items = ["Sales Invoice", "Quotation", "Custom Quote", "Purchase Invoice"];
 
 doctypes_with_items.forEach(function (doctype) {
     frappe.ui.form.on(doctype, {

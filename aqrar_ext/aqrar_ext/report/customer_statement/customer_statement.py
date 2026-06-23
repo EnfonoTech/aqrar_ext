@@ -211,6 +211,16 @@ def get_pdf(customer, company=None, from_date=None, to_date=None):
     customer_doc = frappe.get_doc("Customer", customer)
     company_currency = frappe.db.get_value("Company", company, "default_currency")
 
+    # Fetch primary address
+    customer_address = None
+    addr_name = customer_doc.get("customer_primary_address") or frappe.db.get_value(
+        "Dynamic Link",
+        {"link_doctype": "Customer", "link_name": customer, "parenttype": "Address"},
+        "parent",
+    )
+    if addr_name:
+        customer_address = frappe.get_doc("Address", addr_name)
+
     aging = _get_aging(data, to_date, "Posting Date")
     vat = _get_vat_summary(customer, company, from_date, to_date)
     vat_total_taxable = sum(flt(v.taxable_amount) for v in vat)
@@ -235,6 +245,7 @@ def get_pdf(customer, company=None, from_date=None, to_date=None):
     html = frappe.get_jenv().from_string(template_str).render({
         "data": data,
         "customer_doc": customer_doc,
+        "customer_address": customer_address,
         "company": company,
         "company_currency": company_currency,
         "from_date": from_date,

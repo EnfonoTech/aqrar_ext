@@ -145,6 +145,25 @@ function populate_new_form(source, source_name, source_docstatus) {
     new_frm.refresh_field('items');
     new_frm.refresh_field('taxes');
 
+    // Set posting date/time AFTER refresh_fields so it doesn't get reset
+    if (source.posting_date) {
+        var pt = (source.posting_time || '00:00:00').split('.')[0]; // strip microseconds
+        var dt = new Date(source.posting_date + 'T' + pt);
+        dt.setMinutes(dt.getMinutes() - 10);
+        var nd = dt.getFullYear() + '-' +
+                 String(dt.getMonth() + 1).padStart(2, '0') + '-' +
+                 String(dt.getDate()).padStart(2, '0');
+        var nt = String(dt.getHours()).padStart(2, '0') + ':' +
+                 String(dt.getMinutes()).padStart(2, '0') + ':' +
+                 String(dt.getSeconds()).padStart(2, '0');
+        new_frm.doc.set_posting_time = 1;
+        new_frm.doc.posting_date = nd;
+        new_frm.doc.posting_time = nt;
+        new_frm.refresh_field('set_posting_time');
+        new_frm.refresh_field('posting_date');
+        new_frm.refresh_field('posting_time');
+    }
+
     try { new_frm.script_manager.trigger('calculate_taxes_and_totals'); } catch(e) {}
 
     frappe.show_alert({

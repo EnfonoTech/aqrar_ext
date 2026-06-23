@@ -153,39 +153,8 @@ def create_pos_payments_for_invoice(sales_invoice: str, payments: str | list):
 
 
 def auto_create_payment_entry_on_submit(doc, method):
-	if doc.is_pos:
-		return
-
-	if doc.is_return:
-		return
-
-	if flt(doc.outstanding_amount) <= 0:
-		return
-
-	if not doc.custom_payment_mode:
-		return
-
-	if flt(doc.grand_total) <= 0:
-		return
-
-	payment_mode = doc.custom_payment_mode
-
-	# Cash is handled by the frontend popup (sales_invoice_pos_total_popup.js)
-	if payment_mode == "Cash":
-		return
-
-	elif payment_mode == "Card":
-		partial = flt(doc.custom_partial_payment_amount or 0)
-		if partial > 0 and partial <= flt(doc.grand_total):
-			pay_amount = partial
-		else:
-			pay_amount = flt(doc.grand_total)
-		_create_and_submit_pe(doc, "Card", pay_amount)
-
-	elif payment_mode == "Credit":
-		partial = flt(doc.custom_partial_payment_amount or 0)
-		if partial > 0 and partial <= flt(doc.grand_total):
-			_create_and_submit_pe(doc, "Cash", partial)
+	# Payment Entry creation is handled by the frontend popup (sales_invoice_pos_total_popup.js)
+	return
 
 
 def _create_and_submit_pe(doc, mode_of_payment, amount):

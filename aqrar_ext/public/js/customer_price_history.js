@@ -1,41 +1,18 @@
 frappe.provide("aqrar_ext.price_assist");
 
+// CR-006: Per-customer Last Price column + Price Assist popup
+// Popup style mirrors fateh_trading/customer_price_history.js exactly.
+// Loaded via app_include_js — pre-sets fateh_trading guard flags to prevent
+// duplicate buttons/handlers from fateh_trading's doctype_js version.
+
 const DOCTYPE_CONFIG = {
-    "Sales Invoice": {
-        child_doctype: "Sales Invoice Item",
-        customer_field: "customer",
-        source: "sales"
-    },
-    "Delivery Note": {
-        child_doctype: "Delivery Note Item",
-        customer_field: "customer",
-        source: "sales"
-    },
-    "Sales Order": {
-        child_doctype: "Sales Order Item",
-        customer_field: "customer",
-        source: "sales"
-    },
-    "Quotation": {
-        child_doctype: "Quotation Item",
-        customer_field: "party_name",
-        source: "sales"
-    },
-    "Purchase Invoice": {
-        child_doctype: "Purchase Invoice Item",
-        customer_field: "supplier",
-        source: "purchase"
-    },
-    "Purchase Order": {
-        child_doctype: "Purchase Order Item",
-        customer_field: "supplier",
-        source: "purchase"
-    },
-    "Purchase Receipt": {
-        child_doctype: "Purchase Receipt Item",
-        customer_field: "supplier",
-        source: "purchase"
-    },
+    "Sales Invoice":    { child_doctype: "Sales Invoice Item",    customer_field: "customer",   source: "sales"    },
+    "Delivery Note":    { child_doctype: "Delivery Note Item",    customer_field: "customer",   source: "sales"    },
+    "Sales Order":      { child_doctype: "Sales Order Item",      customer_field: "customer",   source: "sales"    },
+    "Quotation":        { child_doctype: "Quotation Item",        customer_field: "party_name", source: "sales"    },
+    "Purchase Invoice": { child_doctype: "Purchase Invoice Item", customer_field: "supplier",   source: "purchase" },
+    "Purchase Order":   { child_doctype: "Purchase Order Item",   customer_field: "supplier",   source: "purchase" },
+    "Purchase Receipt": { child_doctype: "Purchase Receipt Item", customer_field: "supplier",   source: "purchase" },
 };
 
 for (const [doctype, config] of Object.entries(DOCTYPE_CONFIG)) {
@@ -43,13 +20,13 @@ for (const [doctype, config] of Object.entries(DOCTYPE_CONFIG)) {
     frappe.ui.form.on(doctype, {
 
         refresh(frm) {
+            // Block fateh_trading/customer_price_history.js duplicate buttons/handlers
+            frm.__price_assist_row_bound = true;
+            frm.__price_assist_btn_added = true;
+            frm.price_history_btn_added  = true;
 
             bind_row_click(frm, config);
-
             add_price_assist_button(frm, config);
-
-            add_price_history_button(frm, config);
-
             update_all_last_prices(frm, config);
         },
 
@@ -61,497 +38,267 @@ for (const [doctype, config] of Object.entries(DOCTYPE_CONFIG)) {
     frappe.ui.form.on(config.child_doctype, {
 
         item_code(frm, cdt, cdn) {
-
             const row = locals[cdt][cdn];
-
-            if (!row.item_code) return;
-
-            update_row_last_price(frm, row, config);
+            if (row && row.item_code) update_row_last_price(frm, row, config);
         },
 
         rate(frm, cdt, cdn) {
-
-            const row = locals[cdt][cdn];
-
-            if (row._popup_opened) {
-                show_price_popup(frm, row, config);
-            }
+            aqrar_ext.price_assist.updateHighlight(locals[cdt][cdn]);
         }
     });
 }
+
+// ── Row click ─────────────────────────────────────────────────────────────
 
 function bind_row_click(frm, config) {
+    if (frm.__aqrar_row_click_bound) return;
 
-    if (frm.__price_row_bound) return;
+    frm.fields_dict.items.grid.wrapper.on("click", ".grid-row [data-fieldname='item_code']", function () {
+        const $row     = $(this).closest(".grid-row");
+        const row_name = $row.attr("data-name");
+        if (!row_name) return;
+        const row = locals[config.child_doctype]?.[row_name];
 
-    frm.fields_dict.items.grid.wrapper.on(
-        "click",
-        ".grid-row",
-        function () {
-
-            const row_name = $(this).attr("data-name");
-
-            if (!row_name) return;
-
-            const row = locals[config.child_doctype][row_name];
-
-            frm.__selected_price_row = row;
-
-            // Auto-show popup on row click when item_code is set
-            if (row && row.item_code) {
-                show_price_popup(frm, row, config);
-            }
+        if (frm.__selected_price_row && frm.__selected_price_row !== row) {
+            aqrar_ext.price_assist.hide(frm.__selected_price_row);
         }
-    );
 
-    frm.__price_row_bound = true;
+        frm.__selected_price_row = row;
+        frm.__price_assist_row   = row;
+
+        if (row && row.item_code) {
+            aqrar_ext.price_assist.show(frm, row, config);
+        }
+    });
+
+    frm.__aqrar_row_click_bound = true;
 }
+
+// ── Price Assist button ───────────────────────────────────────────────────
 
 function add_price_assist_button(frm, config) {
+    if (frm.__aqrar_buttons_added) return;
+    frm.__aqrar_buttons_added = true;
 
-    if (frm.__price_btn_added) return;
-
-    const btn = frm.fields_dict.items.grid.add_custom_button(
-        __("Price Assist"),
-        () => {
-
-            const row = frm.__selected_price_row;
-
-            if (!row) {
-                frappe.msgprint("Please select an item row");
-                return;
-            }
-
-            if (!row.item_code) {
-                frappe.msgprint("Please select item code");
-                return;
-            }
-
-            show_price_popup(frm, row, config);
-        }
-    );
-
-    frm.__price_btn_added = true;
-
-    setTimeout(() => {
-
-        const $toolbar =
-            frm.fields_dict.items.grid.wrapper.find(".grid-buttons");
-
-        const $add_multiple =
-            $toolbar.find("button:contains('Add Multiple')").last();
-
-        if ($add_multiple.length) {
-            $(btn).insertAfter($add_multiple);
-        }
-
-    }, 100);
-}
-
-function add_price_history_button(frm, config) {
-
-    if (frm.__price_history_btn_added) return;
-
-    const btn = frm.fields_dict.items.grid.add_custom_button(
-        __("Price History"),
-        () => {
-
-            const row = frm.__selected_price_row;
-
-            if (!row) {
-                frappe.msgprint("Please select an item row");
-                return;
-            }
-
-            if (!row.item_code) {
-                frappe.msgprint("Please select item code");
-                return;
-            }
-
-            const party = frm.doc[config.customer_field];
-            show_price_history_dialog(row.item_code, config.source, party);
-        }
-    );
-
-    frm.__price_history_btn_added = true;
-
-    setTimeout(() => {
-
-        const $toolbar =
-            frm.fields_dict.items.grid.wrapper.find(".grid-buttons");
-
-        const $price_assist =
-            $toolbar.find("button:contains('Price Assist')").last();
-
-        if ($price_assist.length) {
-            $(btn).insertAfter($price_assist);
-        }
-
-    }, 100);
-}
-
-function show_price_history_dialog(item_code, source, customer) {
-
-    source = source || "sales";
-    const party_label = source === "purchase" ? __("Supplier") : __("Customer");
-
-    const d = new frappe.ui.Dialog({
-        title: __("Item Sales & Purchase Price History"),
-        size: "extra-large",
-        fields: [
-            {
-                fieldtype: "Link",
-                fieldname: "item_code",
-                label: __("Item Code"),
-                options: "Item",
-                default: item_code,
-            },
-            {
-                fieldtype: "HTML",
-                fieldname: "history_table",
-            },
-        ],
-    });
-
-    d.show();
-
-    function load_table(code) {
-        if (!code) {
-            d.fields_dict.history_table.$wrapper.html(
-                '<p class="text-muted">' + __("Please select an Item Code") + "</p>"
-            );
+    const btn = frm.fields_dict.items.grid.add_custom_button(__("Price Assist"), () => {
+        const row = frm.__selected_price_row || frm.__price_assist_row;
+        if (!row || !row.item_code) {
+            frappe.msgprint(__("Please click an item row first"));
             return;
         }
-
-        d.fields_dict.history_table.$wrapper.html(
-            '<p class="text-muted">' + __("Loading...") + "</p>"
-        );
-
-        frappe.call({
-            method: "aqrar_ext.api.get_item_price_history",
-            args: { item_code: code, source: source, customer: customer },
-            callback: function (r) {
-                const data = r.message || {};
-                const rows = data.history || [];
-                const last_pr = data.last_price || 0;
-
-                render_price_history_table(
-                    d.fields_dict.history_table.$wrapper,
-                    rows,
-                    last_pr,
-                    source
-                );
-            },
-        });
-    }
-
-    d.fields_dict.item_code.$input.on("change", function () {
-        load_table(d.fields_dict.item_code.get_value());
+        aqrar_ext.price_assist.show(frm, row, config);
     });
 
-    load_table(item_code);
+    setTimeout(() => {
+        const $toolbar      = frm.fields_dict.items.grid.wrapper.find(".grid-buttons");
+        const $add_multiple = $toolbar.find("button:contains('Add Multiple')").last();
+        if ($add_multiple.length && btn) $(btn).insertAfter($add_multiple);
+    }, 0);
 }
 
-function render_price_history_table($wrapper, rows, last_price, source) {
-
-    source = source || "sales";
-    const party_col = source === "purchase" ? __("Supplier") : __("Customer");
-    const rate_col = source === "purchase" ? __("Purchase Rate") : __("Sales Rate (Txn)");
-    const last_col = source === "purchase" ? __("Last Sales Rate") : __("Last Purchase Rate");
-    const empty_msg = source === "purchase" ? __("No purchase history found") : __("No sales history found");
-
-    if (!rows.length) {
-        $wrapper.html(
-            '<p class="text-muted">' + empty_msg + "</p>"
-        );
-        return;
-    }
-
-    let html = `
-        <div class="price-history-table-wrap">
-        <table class="table table-bordered table-condensed" style="margin:0;">
-            <thead>
-                <tr>
-                    <th>${__("Item Code")}</th>
-                    <th>${__("Item Name")}</th>
-                    <th>${party_col}</th>
-                    <th>${rate_col}</th>
-                    <th>${__("Qty")}</th>
-                    <th>${last_col}</th>
-                </tr>
-                <tr class="ph-filter-row">
-                    <th><input type="text" class="ph-filter form-control input-xs" data-col="0" placeholder="${__("Filter Item Code")}"></th>
-                    <th><input type="text" class="ph-filter form-control input-xs" data-col="1" placeholder="${__("Filter Item Name")}"></th>
-                    <th><input type="text" class="ph-filter form-control input-xs" data-col="2" placeholder="${__("Filter") + " " + party_col}"></th>
-                    <th><input type="text" class="ph-filter form-control input-xs" data-col="3" placeholder="${__("Filter Rate")}"></th>
-                    <th><input type="text" class="ph-filter form-control input-xs" data-col="4" placeholder="${__("Filter Qty")}"></th>
-                    <th><input type="text" class="ph-filter form-control input-xs" data-col="5" placeholder="${__("Filter") + " " + last_col}"></th>
-                </tr>
-            </thead>
-            <tbody class="ph-tbody">
-    `;
-
-    function build_row(r) {
-        return `
-            <tr>
-                <td>${r.item_code}</td>
-                <td>${r.item_name || ""}</td>
-                <td>${r.party || r.customer || ""}</td>
-                <td>${format_currency(r.rate)}</td>
-                <td>${r.qty}</td>
-                <td>${format_currency(last_price)}</td>
-            </tr>
-        `;
-    }
-
-    rows.forEach(function (r) {
-        html += build_row(r);
-    });
-
-    html += `
-            </tbody>
-        </table>
-        </div>
-    `;
-
-    $wrapper.html(html);
-
-    // Filter logic
-    var $table = $wrapper.find(".price-history-table-wrap");
-
-    $table.on("input", ".ph-filter", function () {
-        var filters = [];
-        $table.find(".ph-filter").each(function () {
-            filters.push($(this).val().toLowerCase().trim());
-        });
-
-        var tbody_html = "";
-        var count = 0;
-
-        rows.forEach(function (r) {
-            var cols = [
-                (r.item_code || "").toLowerCase(),
-                (r.item_name || "").toLowerCase(),
-                (r.party || r.customer || "").toLowerCase(),
-                format_currency(r.rate).toLowerCase(),
-                String(r.qty || 0).toLowerCase(),
-                format_currency(last_price).toLowerCase(),
-            ];
-
-            var match = true;
-            for (var i = 0; i < 6; i++) {
-                if (filters[i] && cols[i].indexOf(filters[i]) === -1) {
-                    match = false;
-                    break;
-                }
-            }
-
-            if (match) {
-                tbody_html += build_row(r);
-                count++;
-            }
-        });
-
-        if (!count) {
-            tbody_html = '<tr><td colspan="6" class="text-muted">' + __("No matching records") + "</td></tr>";
-        }
-
-        $table.find(".ph-tbody").html(tbody_html);
-    });
-}
+// ── Last Price column ─────────────────────────────────────────────────────
 
 function update_all_last_prices(frm, config) {
-
     if (frm.doc.docstatus !== 0) return;
-
     (frm.doc.items || []).forEach(row => {
-
-        if (row.item_code) {
-            update_row_last_price(frm, row, config);
-        }
+        if (row.item_code) update_row_last_price(frm, row, config);
     });
 }
 
 function update_row_last_price(frm, row, config) {
-
-    // Do not modify submitted/cancelled documents
     if (frm.doc.docstatus !== 0) return;
-
     const party = frm.doc[config.customer_field];
-
     frappe.call({
         method: "aqrar_ext.api.get_last_sold_price",
-        args: {
-            customer: party,
-            item_code: row.item_code,
-            source: config.source
-        },
-        callback: function(r) {
-
+        args: { customer: party, item_code: row.item_code, source: config.source },
+        callback(r) {
             if (!r.message) return;
-
-            frappe.model.set_value(
-                row.doctype,
-                row.name,
-                "custom_last_price",
-                r.message.last_price || 0
-            );
+            frappe.model.set_value(row.doctype, row.name, "custom_last_price", r.message.last_price || 0);
         }
     });
 }
 
-function show_price_popup(frm, row, config) {
+// ── Price Assist popup (mirrors fateh_trading style exactly) ──────────────
 
-    $(".customer-price-popup").remove();
+$.extend(aqrar_ext.price_assist, {
 
-    const party = frm.doc[config.customer_field];
+    show(frm, row, config) {
+        this.hide(row);
+        const party = frm.doc[config.customer_field];
+        if (!party || !row.item_code) return;
 
-    frappe.call({
-        method: "aqrar_ext.api.get_item_insights",
-        args: {
-            customer: party,
-            item_code: row.item_code,
-            company: frm.doc.company,
-            source: config.source
-        },
-        callback: function(r) {
-
-            render_popup(frm, row, r.message || {});
-        }
-    });
-}
-
-function render_popup(frm, row, data) {
-
-    $(".customer-price-popup").remove();
-
-    row._popup_opened = true;
-
-    const stock = data.stock || [];
-    const history = data.price_history || [];
-    const purchase_rate = data.last_purchase_rate || 0;
-
-    let html = `
-        <div class="customer-price-popup">
-
-            <div class="cpp-header">
-                <div class="cpp-title">
-                    ${row.item_name || row.item_code}
-                </div>
-
-                <div class="cpp-close">
-                    ✕
-                </div>
-            </div>
-
-            <div class="cpp-section">
-
-                <div class="cpp-subtitle">
-                    Last Purchase Rate
-                </div>
-
-                <div class="cpp-rate">
-                    ${purchase_rate}
-                </div>
-
-            </div>
-    `;
-
-    html += `
-        <div class="cpp-section">
-
-            <div class="cpp-subtitle">
-                Stock By Warehouse
-            </div>
-    `;
-
-    stock.forEach(s => {
-
-        html += `
-            <div class="cpp-line">
-                <span>${s.warehouse}</span>
-                <span>${s.projected_qty}</span>
-            </div>
-        `;
-    });
-
-    html += `</div>`;
-
-    html += `
-        <div class="cpp-section">
-
-            <div class="cpp-subtitle">
-                Customer Price History
-            </div>
-    `;
-
-    history.forEach(h => {
-
-        html += `
-            <div class="cpp-history">
-
-                <div>
-                    <b>${format_currency(h.rate)}</b>
-                </div>
-
-                <div>
-                    ${h.customer}
-                </div>
-
-                <div>
-                    ${frappe.datetime.str_to_user(h.posting_date)}
-                </div>
-
-            </div>
-        `;
-    });
-
-    html += `</div></div>`;
-
-    const $popup = $(html).appendTo("body");
-
-    const $row = $(`.grid-row[data-name="${row.name}"]`);
-
-    if ($row.length) {
-
-        const pos = $row.offset();
-        const popup_h = 450;  // approximate popup height
-        const popup_w = 430;
-        const win_h = $(window).height();
-        const win_w = $(window).width();
-
-        let top = pos.top + 40;
-        let left = pos.left + 250;
-
-        // Clamp to viewport — flip above row if near bottom
-        if (top + popup_h > win_h + $(window).scrollTop()) {
-            top = pos.top - popup_h - 10;
-        }
-        if (left + popup_w > win_w) {
-            left = win_w - popup_w - 20;
-        }
-
-        $popup.css({
-            top: top,
-            left: left
+        frappe.call({
+            method: "aqrar_ext.api.get_item_insights",
+            args: {
+                customer:    party,
+                item_code:   row.item_code,
+                company:     frm.doc.company,
+                source:      config.source,
+                limit:       6,
+                other_limit: 5,
+            },
+            callback: r => this.render(frm, row, r.message || {}, config)
         });
+    },
+
+    render(frm, row, insights, config) {
+        this.hide(row);
+
+        const price_history   = insights.price_history   || [];
+        const other_customers = insights.other_customers || [];
+        const stock           = insights.stock           || [];
+        const last_rate       = flt(insights.last_rate        || 0);
+        const last_purchase_rate = flt(insights.last_purchase_rate || 0);
+        const avg_rate        = price_history.length
+            ? price_history.reduce((s, d) => s + flt(d.rate), 0) / price_history.length
+            : 0;
+
+        const id   = `aqrar-price-assist-${row.name}`;
+        const $box = $(`<div class="si-price-assist" id="${id}"></div>`).appendTo("body");
+
+        const customerField = config?.customer_field || "customer";
+        const customer      = frm.doc[customerField];
+
+        $box.append(`<div class="pa-customer">${frappe.utils.escape_html(customer)}</div>`);
+        $box.append(`<div class="pa-title">Price History: ${frappe.utils.escape_html(row.item_name || row.item_code)}</div>`);
+
+        // Summary: Last / Last Purchase / Current + % diff
+        const current_rate = flt(row.stock_uom_rate ?? row.rate);
+        let diff_text = "", diff_class = "";
+        if (current_rate && last_rate) {
+            const diff_pct = ((current_rate - last_rate) / last_rate) * 100;
+            const abs      = Math.abs(diff_pct);
+            diff_class = abs <= 5 ? "pa-price-good" : abs <= 20 ? "pa-price-warn" : "pa-price-bad";
+            diff_text  = `${diff_pct >= 0 ? "+" : ""}${diff_pct.toFixed(1)}% vs last price`;
+        }
+
+        $box.append(`
+            <div class="pa-summary ${diff_class}">
+                <div class="pa-summary-main">
+                    <div><label>Last</label><span>${last_rate || "-"}</span></div>
+                    <div><label>Average</label><span>${avg_rate ? avg_rate.toFixed(2) : "-"}</span></div>
+                    <div><label>Current</label><span>${current_rate || "-"}</span></div>
+                </div>
+                <div class="pa-summary-warning">${diff_text}</div>
+            </div>
+        `);
+
+        // Price history rows
+        price_history.forEach(d => {
+            $box.append(
+                $(`<div class="pa-line">
+                    <div class="pa-left">
+                        <b>${d.rate}</b> (${d.currency || ""}, ${d.uom || ""})
+                        <small>${d.qty} qty • ${frappe.format(d.posting_date, "Date")}</small>
+                        <small class="pa-inv">
+                            <a href="/app/sales-invoice/${encodeURIComponent(d.si)}" target="_blank">${d.si}</a>
+                        </small>
+                    </div>
+                    <button class="pa-use">Use</button>
+                </div>`).data("rate", d.rate)
+            );
+        });
+
+        // Other customers
+        if (other_customers.length) {
+            $box.append(`<div class="pa-section-title">Other customers paying</div>`);
+            other_customers.forEach(d => {
+                $box.append(
+                    $(`<div class="pa-line pa-other">
+                        <div class="pa-left">
+                            <b>${d.rate}</b> (${d.currency || ""}, ${d.uom || ""})
+                            <small>${frappe.utils.escape_html(d.customer)}</small>
+                        </div>
+                        <button class="pa-use">Use</button>
+                    </div>`).data("rate", d.rate)
+                );
+            });
+        }
+
+        // Stock by warehouse
+        if (stock.length) {
+            $box.append(`<div class="pa-section-title">Stock by Warehouse</div>`);
+            const maxQty = Math.max(...stock.map(s => flt(s.projected_qty))) || 1;
+            stock.forEach(s => {
+                const fill = Math.min(100, (flt(s.projected_qty) / maxQty) * 100);
+                $box.append(`
+                    <div class="ps-line">
+                        <div class="ps-left">
+                            <b>${frappe.utils.escape_html(s.warehouse)}</b>
+                            <small>${s.projected_qty} available</small>
+                        </div>
+                        <div class="ps-bar-wrap">
+                            <div class="ps-bar" style="width:${fill}%"></div>
+                        </div>
+                        <button class="ps-use">Use</button>
+                    </div>
+                `);
+            });
+        }
+
+        // Position below the item_code input of the row
+        const $input = $(`.grid-row[data-name="${row.name}"] input[data-fieldname="item_code"]`);
+        if ($input.length) {
+            const pos = $input.offset();
+            $box.css({ top: pos.top + $input.outerHeight() + 8, left: pos.left });
+        }
+
+        // "Use" — apply rate
+        $box.on("click", ".pa-use", function () {
+            const rate = $(this).closest(".pa-line").data("rate");
+            frappe.model.set_value(row.doctype, row.name, "rate", rate);
+            frappe.model.set_value(row.doctype, row.name, "actual_rate", rate);
+            frappe.model.set_value(row.doctype, row.name, "custom_last_price", rate);
+            aqrar_ext.price_assist.hide(row);
+        });
+
+        // "Use" — apply warehouse
+        $box.on("click", ".ps-use", function () {
+            frappe.model.set_value(row.doctype, row.name, "warehouse",
+                $(this).closest(".ps-line").find("b").text());
+        });
+
+        row._price_id = id;
+    },
+
+    updateHighlight(row) {
+        if (!row || !row._price_id) return;
+        const rate = flt(row.rate);
+        $(`#${row._price_id} .pa-line`).each(function () {
+            $(this).toggleClass("pa-match", flt($(this).data("rate")) === rate);
+        });
+    },
+
+    hide(row) {
+        if (row?._price_id) {
+            $(`#${row._price_id}`).remove();
+            delete row._price_id;
+        }
     }
+});
 
-    $popup.find(".cpp-close").on("click", function () {
+// Close popup when clicking outside
+$(document).on("click.aqrar_price_assist", function (e) {
+    if ($(e.target).closest(".si-price-assist").length) return;
+    if ($(e.target).closest(".grid-row").length) return;
+    const frm = cur_frm;
+    if (frm?.__selected_price_row) {
+        aqrar_ext.price_assist.hide(frm.__selected_price_row);
+    }
+});
 
-        $(".customer-price-popup").remove();
+// ── Branch User: simplified Sales Invoice view ────────────────────────────
 
-        row._popup_opened = false;
-    });
-}
-
-// aqrar_ext: Simplified Sales Invoice for Branch Users
 frappe.ui.form.on("Sales Invoice", {
     refresh(frm) {
-        if (!frappe.user.has_role("Branch User") || frappe.user.has_role("System Manager") || frappe.user.has_role("Stock Manager") || frm._branch_setup_done) return;
+        if (
+            !frappe.user.has_role("Branch User") ||
+            frappe.user.has_role("System Manager") ||
+            frappe.user.has_role("Stock Manager") ||
+            frm._branch_setup_done
+        ) return;
         frm._branch_setup_done = true;
 
-        // Hide unnecessary fields
         [
             "posting_time", "set_posting_time", "due_date",
             "is_pos", "pos_profile", "is_return", "is_debit_note",
@@ -580,147 +327,59 @@ frappe.ui.form.on("Sales Invoice", {
             "section_break_49", "taxes_section", "customer_po_details",
             "more_info", "sales_team_section_break", "section_break2",
             "edit_printing_settings", "more_information", "subscription_section",
-        ].forEach(function (s) { frm.set_df_property(s, "hidden", 1); });
+        ].forEach(s => frm.set_df_property(s, "hidden", 1));
 
-        // Hide tabs
         ["payments_tab", "contact_and_address_tab", "terms_tab", "more_info_tab"]
-            .forEach(function (t) { frm.set_df_property(t, "hidden", 1); });
+            .forEach(t => frm.set_df_property(t, "hidden", 1));
 
-        // naming_series — force hide via DOM (set_only_once blocks set_df_property)
         frm.set_df_property("naming_series", "reqd", 0);
         frm.set_df_property("naming_series", "hidden", 1);
         $(frm.fields_dict.naming_series.wrapper).hide();
 
-        // Company read-only
         frm.set_df_property("company", "read_only", 1);
 
-        // Payment Mode required
-        frm.set_df_property("custom_payment_mode", "reqd", 1);
-
-        // Auto-fill cost_center from Branch Configuration
         if (!frm.doc.cost_center) {
             frappe.call({
                 method: "aqrar_ext.api.branch_config.get_user_branch_defaults",
-                callback: function (r) {
-                    if (r.message && r.message.cost_center) {
-                        frm.set_value("cost_center", r.message.cost_center);
-                    }
-                    if (r.message && r.message.warehouse && !frm.doc.set_warehouse) {
-                        frm.set_value("set_warehouse", r.message.warehouse);
-                    }
-                },
+                callback(r) {
+                    if (r.message?.cost_center) frm.set_value("cost_center", r.message.cost_center);
+                    if (r.message?.warehouse && !frm.doc.set_warehouse) frm.set_value("set_warehouse", r.message.warehouse);
+                }
             });
         }
-    },
+    }
 });
 
-$(document).on("click", function(e) {
+// ── Styles (same as fateh_trading) ───────────────────────────────────────
 
-    if ($(e.target).closest(".customer-price-popup").length) return;
-
-    if ($(e.target).closest(".grid-row").length) return;
-
-    $(".customer-price-popup").remove();
-});
-
-$(`
-
-<style>
-
-.customer-price-popup{
-    position:absolute;
-    z-index:1000;
-    width:430px;
-    background:#111827;
-    color:white;
-    padding:16px;
-    border-radius:14px;
-    box-shadow:0 10px 30px rgba(0,0,0,.45);
-}
-
-.cpp-header{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    margin-bottom:14px;
-}
-
-.cpp-title{
-    font-size:18px;
-    font-weight:700;
-}
-
-.cpp-close{
-    cursor:pointer;
-    font-size:16px;
-    opacity:.7;
-}
-
-.cpp-close:hover{
-    opacity:1;
-}
-
-.cpp-section{
-    margin-bottom:20px;
-}
-
-.cpp-subtitle{
-    font-size:11px;
-    text-transform:uppercase;
-    opacity:.7;
-    margin-bottom:8px;
-}
-
-.cpp-line{
-    display:flex;
-    justify-content:space-between;
-    padding:8px 0;
-    border-bottom:1px solid rgba(255,255,255,.08);
-}
-
-.cpp-history{
-    background:#1f2937;
-    padding:10px;
-    border-radius:10px;
-    margin-bottom:8px;
-}
-
-.cpp-rate{
-    font-size:24px;
-    font-weight:bold;
-    color:#22c55e;
-}
-
-.price-history-table-wrap{
-    max-height:500px;
-    overflow-y:auto;
-}
-
-.price-history-table-wrap table{
-    font-size:12px;
-}
-
-.price-history-table-wrap thead tr:first-child th{
-    position:sticky;
-    top:0;
-    background:#f8f9fa;
-    z-index:2;
-}
-
-.price-history-table-wrap .ph-filter-row th{
-    position:sticky;
-    top:22px;
-    background:#fff;
-    z-index:2;
-    padding:4px;
-}
-
-.ph-filter{
-    font-size:11px;
-    height:22px;
-    padding:2px 6px;
-}
-
-</style>
-
-`).appendTo("head");
+$(`<style>
+.si-price-assist{position:absolute;z-index:1050;width:340px;background:#0d1117;color:#fff;padding:14px;border-radius:12px;box-shadow:0 8px 25px rgba(0,0,0,.45);font-size:13px}
+.pa-customer{font-size:12px;color:#c9d1d9;margin-bottom:4px;opacity:.85}
+.pa-title{font-weight:600;font-size:14px;margin-bottom:10px;opacity:.9}
+.pa-summary{border-radius:10px;padding:10px;margin-bottom:10px;background:#111b24;border:1px solid rgba(255,255,255,.06)}
+.pa-summary-main{display:flex;justify-content:space-between;gap:6px}
+.pa-summary-main label{display:block;font-size:10px;text-transform:uppercase;opacity:.6}
+.pa-summary-main span{font-size:13px;font-weight:600}
+.pa-summary-warning{margin-top:6px;font-size:11px}
+.pa-price-good{border-color:rgba(0,200,120,.4)}
+.pa-price-good .pa-summary-warning{color:#00e676}
+.pa-price-warn{border-color:rgba(255,200,0,.4)}
+.pa-price-warn .pa-summary-warning{color:#ffeb3b}
+.pa-price-bad{border-color:rgba(255,80,80,.5)}
+.pa-price-bad .pa-summary-warning{color:#ff5252}
+.pa-section-title{font-size:11px;text-transform:uppercase;opacity:.7;margin:6px 0 4px}
+.pa-line{padding:10px;margin-bottom:8px;background:#111b24;border-radius:10px;display:flex;justify-content:space-between;align-items:center;border:1px solid rgba(255,255,255,.05)}
+.pa-line:hover{background:#16212c}
+.pa-line.pa-match{border-color:rgba(0,230,118,.4)}
+.pa-line.pa-other{opacity:.85}
+.pa-left b{font-size:14px;font-weight:600}
+.pa-left small{display:block;font-size:10px;opacity:.75}
+.pa-inv a{color:#58a6ff;text-decoration:none}
+.pa-use{padding:6px 14px;font-size:11px;border-radius:8px;border:none;background:linear-gradient(90deg,#00d2ff,#3a7bd5);color:#fff;font-weight:600;cursor:pointer}
+.ps-line{padding:8px;margin-bottom:6px;background:#101820;border-radius:10px;display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.06)}
+.ps-left{min-width:120px}
+.ps-left small{font-size:10px;opacity:.75}
+.ps-bar-wrap{flex:1;height:6px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden}
+.ps-bar{height:6px;border-radius:999px;background:linear-gradient(90deg,#00e676,#00b0ff)}
+.ps-use{padding:4px 10px;font-size:10px;border-radius:999px;border:none;background:#263238;color:#e0f7fa;cursor:pointer}
+</style>`).appendTo("head");

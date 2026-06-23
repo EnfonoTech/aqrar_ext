@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt
+from frappe.utils import flt, cint
 
 
 @frappe.whitelist()
@@ -108,12 +108,13 @@ def get_last_purchase_price(supplier=None, item_code=None):
 
 
 @frappe.whitelist()
-def get_item_insights(customer=None, item_code=None, company=None, source="sales"):
+def get_item_insights(customer=None, item_code=None, company=None, source="sales", limit=6, other_limit=5):
+
+    limit       = cint(limit)
+    other_limit = cint(other_limit)
 
     stock = frappe.db.sql("""
-        SELECT
-            warehouse,
-            projected_qty
+        SELECT warehouse, projected_qty
         FROM `tabBin`
         WHERE item_code = %s
         ORDER BY warehouse
@@ -122,78 +123,94 @@ def get_item_insights(customer=None, item_code=None, company=None, source="sales
     if source == "purchase":
         price_history = frappe.db.sql("""
             SELECT
-                pi.supplier AS customer,
+                pi.supplier  AS customer,
+                pi.currency,
+                pii.uom,
                 pii.rate,
-                pi.posting_date
+                pii.qty,
+                pi.posting_date,
+                pi.name      AS si
             FROM `tabPurchase Invoice Item` pii
-            INNER JOIN `tabPurchase Invoice` pi
-                ON pi.name = pii.parent
-            WHERE
-                pii.item_code = %s
-                AND pi.supplier = %s
-                AND pi.docstatus = 1
-            ORDER BY
-                pi.posting_date DESC
-            LIMIT 10
-        """, (item_code, customer), as_dict=True)
+            INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+            WHERE pii.item_code = %s AND pi.supplier = %s AND pi.docstatus = 1
+            ORDER BY pi.posting_date DESC, pi.creation DESC
+            LIMIT %s
+        """, (item_code, customer, limit), as_dict=True)
 
-        last_purchase = frappe.db.sql("""
+        other_parties = frappe.db.sql("""
             SELECT
+                pi.supplier  AS customer,
+                pi.currency,
+                pii.uom,
                 pii.rate
             FROM `tabPurchase Invoice Item` pii
-            INNER JOIN `tabPurchase Invoice` pi
-                ON pi.name = pii.parent
-            WHERE
-                pii.item_code = %s
-                AND pi.docstatus = 1
-            ORDER BY
-                pi.posting_date DESC
+            INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+            WHERE pii.item_code = %s AND pi.supplier != %s AND pi.docstatus = 1
+            ORDER BY pi.posting_date DESC, pi.creation DESC
+            LIMIT %s
+        """, (item_code, customer or "", other_limit), as_dict=True)
+
+        last_purchase = frappe.db.sql("""
+            SELECT pii.rate
+            FROM `tabPurchase Invoice Item` pii
+            INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+            WHERE pii.item_code = %s AND pi.docstatus = 1
+            ORDER BY pi.posting_date DESC, pi.creation DESC
             LIMIT 1
         """, item_code, as_dict=True)
 
         return {
-            "stock": stock,
-            "price_history": price_history,
-            "last_purchase_rate":
-                last_purchase[0].rate if last_purchase else 0
+            "stock":              stock,
+            "price_history":      price_history,
+            "other_customers":    other_parties,
+            "last_rate":          flt(price_history[0].rate) if price_history else 0,
+            "last_purchase_rate": flt(last_purchase[0].rate) if last_purchase else 0,
         }
 
     price_history = frappe.db.sql("""
         SELECT
             si.customer,
+            si.currency,
+            sii.uom,
             sii.rate,
-            si.posting_date
+            sii.qty,
+            si.posting_date,
+            si.name AS si
         FROM `tabSales Invoice Item` sii
-        INNER JOIN `tabSales Invoice` si
-            ON si.name = sii.parent
-        WHERE
-            sii.item_code = %s
-            AND si.customer = %s
-            AND si.docstatus = 1
-        ORDER BY
-            si.posting_date DESC
-        LIMIT 10
-    """, (item_code, customer), as_dict=True)
+        INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+        WHERE sii.item_code = %s AND si.customer = %s AND si.docstatus = 1
+        ORDER BY si.posting_date DESC, si.creation DESC
+        LIMIT %s
+    """, (item_code, customer, limit), as_dict=True)
+
+    other_customers = frappe.db.sql("""
+        SELECT
+            si.customer,
+            si.currency,
+            sii.uom,
+            sii.rate
+        FROM `tabSales Invoice Item` sii
+        INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+        WHERE sii.item_code = %s AND si.customer != %s AND si.docstatus = 1
+        ORDER BY si.posting_date DESC, si.creation DESC
+        LIMIT %s
+    """, (item_code, customer or "", other_limit), as_dict=True)
 
     purchase = frappe.db.sql("""
-        SELECT
-            pii.rate
+        SELECT pii.rate
         FROM `tabPurchase Invoice Item` pii
-        INNER JOIN `tabPurchase Invoice` pi
-            ON pi.name = pii.parent
-        WHERE
-            pii.item_code = %s
-            AND pi.docstatus = 1
-        ORDER BY
-            pi.posting_date DESC
+        INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+        WHERE pii.item_code = %s AND pi.docstatus = 1
+        ORDER BY pi.posting_date DESC, pi.creation DESC
         LIMIT 1
     """, item_code, as_dict=True)
 
     return {
-        "stock": stock,
-        "price_history": price_history,
-        "last_purchase_rate":
-            purchase[0].rate if purchase else 0
+        "stock":              stock,
+        "price_history":      price_history,
+        "other_customers":    other_customers,
+        "last_rate":          flt(price_history[0].rate) if price_history else 0,
+        "last_purchase_rate": flt(purchase[0].rate) if purchase else 0,
     }
 
 
