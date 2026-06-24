@@ -15,36 +15,23 @@ frappe.ui.form.on('Item', {
 });
 
 function check_uom_lock(frm) {
-    if (frm._uom_check_done) return;  // ← add this
+    if (frm._uom_check_done) return;
     frm._uom_check_done = true;
 
-    // Check if item has any stock transactions
-    frappe.call({
-        method: 'frappe.client.get_count',
-        args: {
-            doctype: 'Stock Ledger Entry',
-            filters: {
-                item_code: frm.doc.name,
-                is_cancelled: 0
-            }
-        },
-        callback: function(r) {
-            const has_transactions = r.message > 0;
+    // ERPNext sets stock_exists on every item load — no extra API call needed
+    const has_transactions = frm.doc.__onload && frm.doc.__onload.stock_exists;
 
-            if (has_transactions) {
-                apply_uom_lock(frm);
-            }
-        }
-    });
+    if (has_transactions) {
+        apply_uom_lock(frm);
+    }
 }
 
 function apply_uom_lock(frm) {
 
-    const roles        = frappe.user_roles;
-    const is_admin     = frappe.session.user === 'Administrator'
-                      || roles.includes('System Manager');
+    const roles    = frappe.user_roles;
+    const is_admin = frappe.session.user === 'Administrator'
+                  || roles.includes('System Manager');
 
-    // ── Req 77: Lock default_uom ──────────────────────────────────────
     frm.set_df_property('stock_uom', 'read_only', 1);
 
     frm.dashboard.add_comment(
@@ -55,7 +42,6 @@ function apply_uom_lock(frm) {
     );
     frm.dashboard.show();
 
-    // ── Req 78: Admin override button ────────────────────────────────
     if (is_admin) {
         frm.add_custom_button(__('🔓 Override UOM (Admin)'), function() {
 
@@ -89,15 +75,12 @@ function apply_uom_lock(frm) {
                         return;
                     }
 
-                    // Unlock field temporarily
                     frm.set_df_property('stock_uom', 'read_only', 0);
                     frm.set_value('stock_uom', values.new_uom);
-                    frm.set_value('custom_uom_override_reason', values.reason);
-                    frm.set_value('custom_uom_overridden_by', frappe.session.user);
-                    frm.set_value(
-                        'custom_uom_override_date',
-                        frappe.datetime.now_datetime()
-                    );
+                    frm.doc.custom_uom_override_reason = values.reason;
+                    frm.doc.custom_uom_overridden_by   = frappe.session.user;
+                    frm.doc.custom_uom_override_date   = frappe.datetime.now_datetime();
+                    frm.refresh_field('custom_uom_override_reason');
 
                     frappe.msgprint({
                         title: 'UOM Override Applied',
@@ -115,7 +98,6 @@ function apply_uom_lock(frm) {
         }, __('Admin'));
     }
 
-    // ── Req 79: Additional UOMs still editable ───────────────────────
-    // UOM conversion table (uoms child table) stays editable
+    // UOM conversion table stays editable
     frm.set_df_property('uoms', 'read_only', 0);
 }

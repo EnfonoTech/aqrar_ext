@@ -348,6 +348,11 @@ fixtures = [
 					"Stock Entry-workflow_state",
 					"Journal Entry-workflow_state",
 					"Payment Entry-workflow_state",
+					# CR-UOM: UOM lock admin override audit fields
+					"Item-custom_uom_override_reason",
+					"Item-custom_uom_overridden_by",
+					"Item-custom_uom_override_date",
+					"Item-custom_uom_override_audit_trail",
 					# CR-006: Per-customer last-sold price column
 					"Sales Invoice Item-custom_last_price",
 					"Sales Order Item-custom_last_price",
