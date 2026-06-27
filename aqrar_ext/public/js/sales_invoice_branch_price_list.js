@@ -1,6 +1,6 @@
 frappe.ui.form.on("Sales Invoice", {
     onload: function (frm) {
-        auto_set_cost_center_price_list(frm);
+        if (frm.is_new()) auto_set_cost_center_price_list(frm);
     },
     customer: function (frm) {
         auto_set_cost_center_price_list(frm);
@@ -12,7 +12,7 @@ frappe.ui.form.on("Sales Invoice", {
 
 frappe.ui.form.on("Quotation", {
     onload: function (frm) {
-        auto_set_cost_center_price_list(frm);
+        if (frm.is_new()) auto_set_cost_center_price_list(frm);
     },
     customer: function (frm) {
         auto_set_cost_center_price_list(frm);
