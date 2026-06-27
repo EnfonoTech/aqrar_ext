@@ -70,6 +70,7 @@ function is_price_list_enabled(pl_name) {
  */
 function auto_set_cost_center_price_list(frm) {
     if (!frm.doc.customer) return;
+    if (frm.doc.docstatus !== 0) return;
 
     resolve_cost_center(frm).then(function (cost_center) {
         if (cost_center) {
