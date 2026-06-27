@@ -76,7 +76,7 @@ function auto_set_cost_center_price_list(frm) {
         if (cost_center) {
             get_cost_center_price_list(cost_center).then(function (cc_pl) {
                 if (cc_pl) {
-                    frm.set_value("selling_price_list", cc_pl);
+                    set_price_list_if_changed(frm, cc_pl);
                 } else {
                     set_from_customer_or_fallback(frm);
                 }
@@ -87,15 +87,21 @@ function auto_set_cost_center_price_list(frm) {
     });
 }
 
+function set_price_list_if_changed(frm, new_pl) {
+    if (new_pl && frm.doc.selling_price_list !== new_pl) {
+        frm.set_value("selling_price_list", new_pl);
+    }
+}
+
 function set_from_customer_or_fallback(frm) {
     frappe.db.get_value("Customer", frm.doc.customer, "default_price_list", function (r) {
         var cust_pl = r && r.default_price_list ? r.default_price_list : null;
         is_price_list_enabled(cust_pl).then(function (ok) {
             if (ok) {
-                frm.set_value("selling_price_list", cust_pl);
+                set_price_list_if_changed(frm, cust_pl);
             } else {
                 is_price_list_enabled("Standard Selling").then(function (std_ok) {
-                    if (std_ok) frm.set_value("selling_price_list", "Standard Selling");
+                    if (std_ok) set_price_list_if_changed(frm, "Standard Selling");
                 });
             }
         });
