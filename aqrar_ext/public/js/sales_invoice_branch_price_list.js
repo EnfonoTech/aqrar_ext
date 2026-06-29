@@ -3,10 +3,10 @@ frappe.ui.form.on("Sales Invoice", {
         if (frm.is_new()) auto_set_cost_center_price_list(frm);
     },
     customer: function (frm) {
-        auto_set_cost_center_price_list(frm);
+        if (frm.doc.docstatus === 0) auto_set_cost_center_price_list(frm);
     },
     cost_center: function (frm) {
-        auto_set_cost_center_price_list(frm);
+        if (frm.doc.docstatus === 0) auto_set_cost_center_price_list(frm);
     },
 });
 
@@ -15,10 +15,10 @@ frappe.ui.form.on("Quotation", {
         if (frm.is_new()) auto_set_cost_center_price_list(frm);
     },
     customer: function (frm) {
-        auto_set_cost_center_price_list(frm);
+        if (frm.doc.docstatus === 0) auto_set_cost_center_price_list(frm);
     },
     cost_center: function (frm) {
-        auto_set_cost_center_price_list(frm);
+        if (frm.doc.docstatus === 0) auto_set_cost_center_price_list(frm);
     },
 });
 
@@ -88,7 +88,9 @@ function auto_set_cost_center_price_list(frm) {
 }
 
 function set_price_list_if_changed(frm, new_pl) {
-    if (new_pl && frm.doc.selling_price_list !== new_pl) {
+    if (!new_pl) return;
+    if (frm.doc.docstatus !== 0) return;
+    if (frm.doc.selling_price_list !== new_pl) {
         frm.set_value("selling_price_list", new_pl);
     }
 }
