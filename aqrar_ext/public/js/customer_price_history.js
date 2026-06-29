@@ -338,10 +338,11 @@ frappe.ui.form.on("Sales Invoice", {
 
         frm.set_df_property("company", "read_only", 1);
 
-        if (!frm.doc.cost_center) {
+        if (frm.doc.docstatus === 0 && !frm.doc.cost_center) {
             frappe.call({
                 method: "aqrar_ext.api.branch_config.get_user_branch_defaults",
                 callback(r) {
+                    if (frm.doc.docstatus !== 0) return;
                     if (r.message?.cost_center) frm.set_value("cost_center", r.message.cost_center);
                     if (r.message?.warehouse && !frm.doc.set_warehouse) frm.set_value("set_warehouse", r.message.warehouse);
                 }
