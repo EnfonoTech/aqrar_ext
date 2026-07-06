@@ -54,17 +54,9 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 				default: payment_modes[0] || "",
 				reqd: 1,
 				onchange: function () {
-					const amount_field = d.get_field("amount");
-					if (this.value === "Credit") {
-						d.set_value("amount", 0);
-						amount_field.df.read_only = 1;
-					} else {
-						amount_field.df.read_only = 0;
-						if (flt(d.get_value("amount")) === 0) {
-							d.set_value("amount", default_amount);
-						}
+					if (flt(d.get_value("amount")) === 0) {
+						d.set_value("amount", this.value === "Credit" ? partial_amount : default_amount);
 					}
-					amount_field.refresh();
 				},
 			},
 			{
@@ -79,7 +71,10 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 		secondary_action_label: __("Save Only"),
 		primary_action: function (vals) {
 			const mode = vals.payment_mode;
-			const amount = mode === "Credit" ? 0 : flt(vals.amount);
+			const amount = flt(vals.amount);
+			// "Credit" has no linked Cash/Bank account of its own — any amount actually
+			// collected under it is deposited via the first real payment mode.
+			const pe_mode = mode === "Credit" ? payment_modes[0] : mode;
 
 			if (amount < 0) {
 				frappe.msgprint(__("Amount cannot be negative."));
@@ -104,7 +99,7 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 							args: {
 								sales_invoice: frm.doc.name,
 								payments: JSON.stringify([
-									{ mode_of_payment: mode, amount: amount },
+									{ mode_of_payment: pe_mode, amount: amount },
 								]),
 							},
 							freeze: true,
