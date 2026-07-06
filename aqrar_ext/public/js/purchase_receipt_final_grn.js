@@ -147,21 +147,34 @@ function populate_new_form(source, source_name, source_docstatus) {
 
     // Set posting date/time AFTER refresh_fields so it doesn't get reset
     if (source.posting_date) {
-        var pt = (source.posting_time || '00:00:00').split('.')[0]; // strip microseconds
-        var dt = new Date(source.posting_date + 'T' + pt);
-        dt.setMinutes(dt.getMinutes() - 10);
-        var nd = dt.getFullYear() + '-' +
-                 String(dt.getMonth() + 1).padStart(2, '0') + '-' +
-                 String(dt.getDate()).padStart(2, '0');
-        var nt = String(dt.getHours()).padStart(2, '0') + ':' +
-                 String(dt.getMinutes()).padStart(2, '0') + ':' +
-                 String(dt.getSeconds()).padStart(2, '0');
-        new_frm.doc.set_posting_time = 1;
-        new_frm.doc.posting_date = nd;
-        new_frm.doc.posting_time = nt;
-        new_frm.refresh_field('set_posting_time');
-        new_frm.refresh_field('posting_date');
-        new_frm.refresh_field('posting_time');
+        // Parse date/time parts manually and build the Date via the numeric
+        // constructor - string-based `new Date(dateStr + 'T' + timeStr)` parsing
+        // is inconsistently strict across browsers and silently yields an
+        // Invalid Date (NaN) on malformed/edge-case input.
+        var dateParts = String(source.posting_date).split('-').map(Number);
+        var timeParts = String(source.posting_time || '00:00:00').split('.')[0].split(':').map(Number);
+        var valid = dateParts.length === 3 && timeParts.length === 3 &&
+            dateParts.every(function(n) { return !isNaN(n); }) &&
+            timeParts.every(function(n) { return !isNaN(n); });
+
+        if (valid) {
+            var dt = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], timeParts[0], timeParts[1], timeParts[2]);
+            dt.setMinutes(dt.getMinutes() - 10);
+            var nd = dt.getFullYear() + '-' +
+                     String(dt.getMonth() + 1).padStart(2, '0') + '-' +
+                     String(dt.getDate()).padStart(2, '0');
+            var nt = String(dt.getHours()).padStart(2, '0') + ':' +
+                     String(dt.getMinutes()).padStart(2, '0') + ':' +
+                     String(dt.getSeconds()).padStart(2, '0');
+            new_frm.doc.set_posting_time = 1;
+            new_frm.doc.posting_date = nd;
+            new_frm.doc.posting_time = nt;
+            new_frm.refresh_field('set_posting_time');
+            new_frm.refresh_field('posting_date');
+            new_frm.refresh_field('posting_time');
+        } else {
+            console.error('Final GRN: could not parse source posting date/time, leaving defaults', source.posting_date, source.posting_time);
+        }
     }
 
     try { new_frm.script_manager.trigger('calculate_taxes_and_totals'); } catch(e) {}
