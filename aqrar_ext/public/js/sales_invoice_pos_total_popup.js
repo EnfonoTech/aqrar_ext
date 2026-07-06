@@ -29,6 +29,7 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 
 	const invoice_total = flt(frm.doc.rounded_total || frm.doc.grand_total || 0);
 	const currency = frm.doc.currency || "";
+	const mode_options = [...payment_modes, "Credit"];
 
 	const d = new frappe.ui.Dialog({
 		title: __("Payment"),
@@ -45,9 +46,22 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 				fieldname: "payment_mode",
 				fieldtype: "Select",
 				label: __("Payment Mode"),
-				options: payment_modes.join("\n"),
+				options: mode_options.join("\n"),
 				default: payment_modes[0] || "",
 				reqd: 1,
+				onchange: function () {
+					const amount_field = d.get_field("amount");
+					if (this.value === "Credit") {
+						d.set_value("amount", 0);
+						amount_field.df.read_only = 1;
+					} else {
+						amount_field.df.read_only = 0;
+						if (flt(d.get_value("amount")) === 0) {
+							d.set_value("amount", invoice_total);
+						}
+					}
+					amount_field.refresh();
+				},
 			},
 			{
 				fieldname: "amount",
@@ -61,7 +75,7 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 		secondary_action_label: __("Save Only"),
 		primary_action: function (vals) {
 			const mode = vals.payment_mode;
-			const amount = flt(vals.amount);
+			const amount = mode === "Credit" ? 0 : flt(vals.amount);
 
 			if (amount < 0) {
 				frappe.msgprint(__("Amount cannot be negative."));
