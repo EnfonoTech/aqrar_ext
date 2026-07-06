@@ -31,6 +31,10 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 	const currency = frm.doc.currency || "";
 	const mode_options = [...payment_modes, "Credit"];
 
+	const partial_amount = flt(frm.doc.custom_partial_payment_amount);
+	const default_amount =
+		partial_amount > 0 && partial_amount < invoice_total ? partial_amount : invoice_total;
+
 	const d = new frappe.ui.Dialog({
 		title: __("Payment"),
 		fields: [
@@ -57,7 +61,7 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 					} else {
 						amount_field.df.read_only = 0;
 						if (flt(d.get_value("amount")) === 0) {
-							d.set_value("amount", invoice_total);
+							d.set_value("amount", default_amount);
 						}
 					}
 					amount_field.refresh();
@@ -67,7 +71,7 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 				fieldname: "amount",
 				fieldtype: "Currency",
 				label: __("Amount"),
-				default: invoice_total,
+				default: default_amount,
 				options: currency,
 			},
 		],
