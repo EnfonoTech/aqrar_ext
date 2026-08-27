@@ -17,5 +17,18 @@
  "ref_doctype": "Stock Ledger Entry",
  "report_name": "Stock Ledger Report",
  "report_type": "Script Report",
- "roles": []
+ "roles": [
+  {
+   "role": "Stock User"
+  },
+  {
+   "role": "Stock Manager"
+  },
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Accounts Manager"
+  }
+ ]
 }

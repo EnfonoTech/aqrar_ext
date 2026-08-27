@@ -16,5 +16,17 @@
   "doctype": "Workflow Action Master",
   "name": "Reject",
   "workflow_action_name": "Reject"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "name": "Transfer",
+  "workflow_action_name": "Transfer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "name": "Cancel",
+  "workflow_action_name": "Cancel"
  }
 ]

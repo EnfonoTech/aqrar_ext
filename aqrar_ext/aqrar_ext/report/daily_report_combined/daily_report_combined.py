@@ -1,5 +1,12 @@
 # Copyright (c) 2026, Enfono
 # For license information, please see license.txt
+# NOTE: `DCR Report` and `Daily Report Combined` overlap heavily (both answer
+# CR-009 "day summary"). They differ deliberately:
+#   * DCR Report          - grouped by transaction type, company + cost centre
+#                           filters, drill-down rows. This is the day-close view.
+#   * Daily Report Combined - flat per-type listing, no company/cost-centre filter.
+# Confirm with Aqrar which one is in use before extending either (CR-009 open
+# question: "aqrar_ext or RMAX-Custom?"). Do not fix a bug in only one of them.
 
 import frappe
 
@@ -66,7 +73,7 @@ def execute(filters=None):
 
     elif report_type == "Card Purchases":
         data = get_card_purchases(date)
-    
+
     elif report_type == "Credit Sales":
         data = get_credit_sales(date)
     elif report_type == "Credit Purchases":
@@ -88,19 +95,19 @@ def execute(filters=None):
 
     elif report_type == "Purchase Return Credit":
         data = get_purchase_return_credit(date)
-    
+
     elif report_type == "Sales Returns":
         data = get_sales_returns(date)
 
     elif report_type == "Purchase Returns":
         data = get_purchase_returns(date)
-    
+
     elif report_type == "Customer Receipts":
         data = get_customer_receipts(date)
-    
+
     elif report_type == "Supplier Payments":
         data = get_supplier_payments(date)
-        
+
     elif report_type in (
 		"Bank Receipts",
 		"Bank Payments",
@@ -111,7 +118,7 @@ def execute(filters=None):
 
     else:
         data = []
-        
+
     if report_type in TOTAL_ROW_TYPES and data:
         total_amount = sum(row.get("amount", 0) or 0 for row in data)
         total_invoice_amount = sum(row.get("invoice_total", 0) or 0 for row in data)
@@ -556,7 +563,7 @@ def get_supplier_payments(date):
 
 def get_journal_entries(date, report_type=None):
     conditions = ""
-    
+
     if report_type == "Bank Receipts":
         conditions = "acc.account_type = 'Bank' AND jea.debit > 0"
     elif report_type == "Bank Payments":

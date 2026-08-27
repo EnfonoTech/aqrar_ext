@@ -1,6 +1,14 @@
 // aqrar_ext: Multi-select item picker with running search and quantity
 // Replaces the stock "Add Multiple" LinkSelector for item grids.
 
+// Documents that take stock OUT — only these cap the quantity at what is on
+// hand. On a purchase document a zero-stock item is exactly what you are buying.
+const OUTGOING_DOCTYPES = ["Sales Invoice", "Delivery Note", "Sales Order", "Quotation"];
+
+function aqrar_escape(value) {
+    return frappe.utils.escape_html(String(value == null ? "" : value));
+}
+
 frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
     constructor(opts) {
         this.target = opts.target;          // the grid object
@@ -10,6 +18,9 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         this.start = 0;
         this.page_length = 20;
         this.selected = {};  // { item_code: qty }
+        this.enforce_stock = OUTGOING_DOCTYPES.indexOf(
+            (this.target && this.target.frm && this.target.frm.doctype) || ""
+        ) !== -1;
         this.make();
     }
 
@@ -159,30 +170,37 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             var item_name = r[1] || "";
             var checked_attr = me.selected[item_code] !== undefined ? "checked" : "";
             var qty_val = me.selected[item_code] || 1;
+            // Item codes and names are user-entered master data — escape before
+            // they reach the DOM or a quote breaks the markup / the selector.
+            var code_attr = aqrar_escape(item_code);
 
             var row = $(
-                '<div class="item-selector-row" data-item="' + item_code + '"' +
+                '<div class="item-selector-row" data-item="' + code_attr + '"' +
                      ' style="display:flex; align-items:center; padding:8px 4px; border-bottom:1px solid #f0f4f7; cursor:pointer;">' +
                     '<span style="width:5%;">' +
-                        '<input type="checkbox" class="item-check" data-item="' + item_code + '"' +
+                        '<input type="checkbox" class="item-check" data-item="' + code_attr + '"' +
                             ' ' + checked_attr + '>' +
                     '</span>' +
-                    '<span style="width:35%;"><b>' + item_code + '</b></span>' +
-                    '<span style="width:30%;" class="text-muted">' + item_name + '</span>' +
+                    '<span style="width:35%;"><b>' + aqrar_escape(item_code) + '</b></span>' +
+                    '<span style="width:30%;" class="text-muted">' + aqrar_escape(item_name) + '</span>' +
                     '<span style="width:10%;">' +
-                        '<span class="stock-badge badge" data-item="' + item_code + '">...</span>' +
+                        '<span class="stock-badge badge" data-item="' + code_attr + '">...</span>' +
                     '</span>' +
                     '<span style="width:20%;">' +
-                        '<input type="number" class="item-qty form-control input-xs" data-item="' + item_code + '"' +
-                            ' value="' + qty_val + '" min="0" step="1"' +
+                        '<input type="number" class="item-qty form-control input-xs" data-item="' + code_attr + '"' +
+                            ' value="' + aqrar_escape(qty_val) + '" min="0" step="any"' +
                             ' style="width:80px; height:24px;">' +
                     '</span>' +
                 '</div>'
             ).appendTo(list);
 
+            // jQuery attribute selectors break on embedded quotes; keep a direct
+            // handle on the row instead of re-querying by item code.
+            row.data("aqrar-item", item_code);
+
             // Checkbox click
             row.find(".item-check").on("change", function () {
-                var code = $(this).attr("data-item");
+                var code = row.data("aqrar-item");
                 if (this.checked) {
                     var qty = parseFloat(row.find(".item-qty").val()) || 1;
                     me.selected[code] = qty;
@@ -193,10 +211,10 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
 
             // Qty change
             row.find(".item-qty").on("change input", function () {
-                var code  = $(this).attr("data-item");
+                var code  = row.data("aqrar-item");
                 var val   = parseFloat($(this).val()) || 0;
                 var max   = parseFloat($(this).attr("max"));
-                if (!isNaN(max) && val > max) {
+                if (me.enforce_stock && !isNaN(max) && val > max) {
                     val = max;
                     $(this).val(max);
                     frappe.show_alert({ message: __("Qty cannot exceed available stock ({0})", [max]), indicator: "orange" }, 3);
@@ -212,7 +230,6 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
 
         // Load More button
         if (results.length >= this.page_length) {
-            var me = this;
             $(
                 '<button class="btn btn-xs btn-default load-more" style="margin-top:8px;">' +
                     __("Load More") +
@@ -254,26 +271,31 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                     fetched[b.item_code] = (fetched[b.item_code] || 0) + (b.actual_qty || 0);
                 });
 
-                item_codes.forEach(function(code) {
-                    var badge   = me.dialog.$wrapper.find('.stock-badge[data-item="' + code + '"]');
-                    var qty_inp = me.dialog.$wrapper.find('.item-qty[data-item="' + code + '"]');
-                    var stock   = fetched[code];
+                me.dialog.$wrapper.find(".item-selector-row").each(function () {
+                    var $row    = $(this);
+                    var code    = $row.data("aqrar-item");
+                    var badge   = $row.find(".stock-badge");
+                    var qty_inp = $row.find(".item-qty");
+                    var stock   = flt(fetched[code]);
 
-                    if (stock === undefined || stock <= 0) {
-                        badge.text("0").removeClass().addClass("stock-badge badge");
-                        // No stock — cap qty at 0 and disable input
-                        qty_inp.attr("max", 0).val(0);
-                        if (me.selected[code] !== undefined) me.selected[code] = 0;
-                    } else {
-                        badge.text(stock).removeClass().addClass("stock-badge badge");
-                        // Cap qty input at available stock
+                    // CR-005: out-of-stock items stay selectable and are shown
+                    // with a "0" badge — they must not be hidden or locked.
+                    badge.text(stock)
+                        .removeClass()
+                        .addClass("stock-badge badge")
+                        .toggleClass("badge-danger", stock <= 0);
+
+                    if (me.enforce_stock && stock > 0) {
                         qty_inp.attr("max", stock);
-                        if (parseFloat(qty_inp.val()) > stock) {
+                        if (flt(qty_inp.val()) > stock) {
                             qty_inp.val(stock);
                             if (me.selected[code] !== undefined) me.selected[code] = stock;
                         }
+                    } else {
+                        qty_inp.removeAttr("max");
                     }
-                    me.stock_map[code] = stock !== undefined ? stock : 0;
+
+                    me.stock_map[code] = stock;
                 });
             },
         });
@@ -317,8 +339,8 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         chain.then(function () {
             me.dialog.hide();
             frappe.show_alert(
-                __("Added {0} items", [to_add.length]),
-                "green"
+                { message: __("Added {0} items", [to_add.length]), indicator: "green" },
+                5
             );
         });
     }

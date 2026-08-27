@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate, formatdate
+from frappe.utils import flt, formatdate, getdate
 
 
 def execute(filters=None):
@@ -8,6 +8,9 @@ def execute(filters=None):
         filters = {}
     if not filters.get("customer"):
         return [], []
+
+    # This report exposes one customer's full ledger — gate it on Customer read.
+    frappe.has_permission("Customer", "read", doc=filters.get("customer"), throw=True)
 
     return get_columns(), get_data(filters)
 
@@ -39,8 +42,9 @@ def get_data(filters):
 
     # Sales Invoices (non-return)
     invoices = _get_sales_invoices(customer, company, from_date, to_date, is_return=0)
+    paid_map = _get_paid_amounts([inv.name for inv in invoices])
     for inv in invoices:
-        paid = _get_paid_amount(inv.name)
+        paid = flt(paid_map.get(inv.name))
         age_date = inv.due_date if ageing_based_on == "Due Date" else inv.posting_date
         age = (getdate(to_date) - getdate(age_date)).days if getdate(age_date) <= getdate(to_date) else 0
         outstanding = flt(inv.grand_total) - flt(paid)
@@ -169,16 +173,22 @@ def _get_sales_invoices(customer, company, from_date, to_date, is_return=0):
     }, fields=["name", "posting_date", "due_date", "grand_total"], order_by="posting_date")
 
 
-def _get_paid_amount(invoice_name):
-    result = frappe.db.sql("""
-        SELECT SUM(per.allocated_amount)
+def _get_paid_amounts(invoice_names):
+    """Allocated payment per invoice, in one query (was N+1)."""
+    if not invoice_names:
+        return {}
+
+    rows = frappe.db.sql("""
+        SELECT per.reference_name AS invoice, SUM(per.allocated_amount) AS paid
         FROM `tabPayment Entry Reference` per
         INNER JOIN `tabPayment Entry` pe ON pe.name = per.parent
-        WHERE per.reference_name = %s
+        WHERE per.reference_name IN %(invoices)s
           AND per.reference_doctype = 'Sales Invoice'
           AND pe.docstatus = 1
-    """, (invoice_name,))
-    return flt(result[0][0]) if result and result[0][0] else 0.0
+        GROUP BY per.reference_name
+    """, {"invoices": tuple(invoice_names)}, as_dict=True)
+
+    return {r.invoice: flt(r.paid) for r in rows}
 
 
 def _get_payment_entries(customer, company, from_date, to_date):
@@ -193,16 +203,30 @@ def _get_payment_entries(customer, company, from_date, to_date):
 
 
 @frappe.whitelist()
-def get_pdf(customer, company=None, from_date=None, to_date=None):
+def get_pdf(customer, company=None, from_date=None, to_date=None, ageing_based_on="Posting Date"):
     """Generate statement PDF for download."""
+    if not customer:
+        frappe.throw(_("Customer is required"))
+
+    # Public HTTP endpoint: never serve another party's ledger without a check.
+    frappe.has_permission("Customer", "read", doc=customer, throw=True)
+
     if not company:
         company = frappe.defaults.get_user_default("Company")
+    if not company:
+        frappe.throw(_("Company could not be determined. Please pass a company."))
+
+    from_date = from_date or frappe.utils.get_first_day(frappe.utils.today())
+    to_date = to_date or frappe.utils.today()
+    if getdate(from_date) > getdate(to_date):
+        frappe.throw(_("From Date cannot be after To Date"))
 
     filters = frappe._dict({
         "customer": customer,
         "company": company,
         "from_date": from_date,
         "to_date": to_date,
+        "ageing_based_on": ageing_based_on,
     })
     _columns, data = execute(filters)
     if not data:
@@ -221,7 +245,7 @@ def get_pdf(customer, company=None, from_date=None, to_date=None):
     if addr_name:
         customer_address = frappe.get_doc("Address", addr_name)
 
-    aging = _get_aging(data, to_date, "Posting Date")
+    aging = _get_aging(data, to_date, ageing_based_on)
     vat = _get_vat_summary(customer, company, from_date, to_date)
     vat_total_taxable = sum(flt(v.taxable_amount) for v in vat)
     vat_total_tax = sum(flt(v.tax_amount) for v in vat)
@@ -293,18 +317,37 @@ def _get_aging(rows, to_date, ageing_based_on):
 
 
 def _get_vat_summary(customer, company, from_date, to_date):
+    """Tax collected per rate, plus the net amount it was charged on.
+
+    The taxable amount is de-duplicated per invoice first: joining the tax rows
+    straight onto the invoice multiplied `net_total` by the number of tax lines.
+    """
     return frappe.db.sql("""
         SELECT
-            stc.rate,
-            SUM(stc.tax_amount) AS tax_amount,
-            SUM(si.net_total) AS taxable_amount
-        FROM `tabSales Taxes and Charges` stc
-        INNER JOIN `tabSales Invoice` si ON stc.parent = si.name
-        WHERE si.customer = %s
-          AND si.company = %s
-          AND si.posting_date BETWEEN %s AND %s
-          AND si.docstatus = 1
-          AND si.is_return = 0
-        GROUP BY stc.rate
-        ORDER BY stc.rate
-    """, (customer, company, from_date, to_date), as_dict=True)
+            per_invoice.rate,
+            SUM(per_invoice.tax_amount) AS tax_amount,
+            SUM(per_invoice.net_total)  AS taxable_amount
+        FROM (
+            SELECT
+                stc.rate           AS rate,
+                stc.parent         AS invoice,
+                SUM(stc.tax_amount) AS tax_amount,
+                MAX(si.net_total)   AS net_total
+            FROM `tabSales Taxes and Charges` stc
+            INNER JOIN `tabSales Invoice` si ON stc.parent = si.name
+            WHERE si.customer = %(customer)s
+              AND si.company = %(company)s
+              AND si.posting_date BETWEEN %(from_date)s AND %(to_date)s
+              AND si.docstatus = 1
+              AND si.is_return = 0
+              AND stc.parenttype = 'Sales Invoice'
+            GROUP BY stc.rate, stc.parent
+        ) per_invoice
+        GROUP BY per_invoice.rate
+        ORDER BY per_invoice.rate
+    """, {
+        "customer": customer,
+        "company": company,
+        "from_date": from_date,
+        "to_date": to_date,
+    }, as_dict=True)

@@ -6,6 +6,8 @@ from frappe.utils import flt
 @frappe.whitelist()
 def get_selling_price_lists(cost_center=None):
 	"""Return enabled selling price lists, optionally filtered by cost center."""
+	frappe.has_permission("Item Price", "read", throw=True)
+
 	filters = {"enabled": 1, "selling": 1}
 	if cost_center:
 		filters["custom_branch"] = cost_center
@@ -20,10 +22,10 @@ def get_selling_price_lists(cost_center=None):
 @frappe.whitelist()
 def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, item_code=None):
 	"""Return a pivot grid: rows = items, cols = one per price list with rate/min."""
-	import json
+	frappe.has_permission("Item Price", "read", throw=True)
 
 	if isinstance(price_lists, str):
-		price_lists = json.loads(price_lists)
+		price_lists = frappe.parse_json(price_lists)
 
 	if not price_lists:
 		price_lists = frappe.get_all(
@@ -115,11 +117,24 @@ def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, i
 
 @frappe.whitelist()
 def save_cell(item_code, price_list, uom, rate, min_rate=None):
-	"""Create or update a single Item Price row."""
-	with open("/tmp/ple_debug.log", "a") as _f:
-		_f.write(f"save_cell: item={item_code} pl={price_list} rate={rate} min={min_rate}\n")
+	"""Create or update a single Item Price row (CR-015)."""
+	if not item_code or not price_list:
+		frappe.throw(_("Item and Price List are required"))
+
 	rate = flt(rate)
 	min_rate = flt(min_rate) if min_rate not in (None, "", 0) else None
+
+	if min_rate is not None and rate < min_rate:
+		# Warn rather than block: editors routinely lower the rate first and the
+		# floor second, and refusing the first keystroke would trap them.
+		frappe.msgprint(
+			_("Rate {0} is below the minimum selling rate {1} for this row.").format(
+				frappe.format_value(rate, "Currency"),
+				frappe.format_value(min_rate, "Currency"),
+			),
+			alert=True,
+			indicator="orange",
+		)
 
 	existing = frappe.db.exists(
 		"Item Price",
@@ -131,20 +146,17 @@ def save_cell(item_code, price_list, uom, rate, min_rate=None):
 		},
 	)
 
+	# Item Price has track_changes=1, so Frappe writes the Version record itself.
 	if existing:
-		old_doc = frappe.get_doc("Item Price", existing)
-		old_rate = flt(old_doc.price_list_rate)
-		old_min  = flt(old_doc.custom_minimum_selling_rate)
-
-		old_doc.price_list_rate = rate
+		frappe.has_permission("Item Price", "write", doc=existing, throw=True)
+		doc = frappe.get_doc("Item Price", existing)
+		doc.price_list_rate = rate
 		if min_rate is not None:
-			old_doc.custom_minimum_selling_rate = min_rate
-		old_doc.flags.ignore_version = True   # we write the version ourselves
-		old_doc.save(ignore_permissions=True)
+			doc.custom_minimum_selling_rate = min_rate
+		doc.save()
+		return {"name": doc.name, "action": "updated"}
 
-		_write_version(existing, old_rate, rate, old_min, min_rate)
-		return {"name": existing, "action": "updated"}
-
+	frappe.has_permission("Item Price", "create", throw=True)
 	doc = frappe.get_doc({
 		"doctype": "Item Price",
 		"item_code": item_code,
@@ -154,42 +166,8 @@ def save_cell(item_code, price_list, uom, rate, min_rate=None):
 		"custom_minimum_selling_rate": min_rate,
 		"selling": 1,
 	})
-	doc.save(ignore_permissions=True)
+	doc.insert()
 	return {"name": doc.name, "action": "created"}
-
-
-def _write_version(item_price_name, old_rate, new_rate, old_min, new_min):
-	"""Always write a Version record for rate/min changes made from the bulk editor."""
-	import json as _json
-
-	changed = []
-	if flt(old_rate) != flt(new_rate):
-		changed.append(["price_list_rate", flt(old_rate), flt(new_rate)])
-	if new_min is not None and flt(old_min) != flt(new_min):
-		changed.append(["custom_minimum_selling_rate", flt(old_min), flt(new_min)])
-
-	if not changed:
-		return
-
-	with open("/tmp/ple_debug.log", "a") as _f:
-		_f.write(f"_write_version: name={item_price_name} old={old_rate} new={new_rate} changed={changed}\n")
-	try:
-		frappe.db.sql(
-			"""INSERT INTO `tabVersion`
-			   (name, creation, modified, modified_by, owner, docstatus, idx,
-			    ref_doctype, docname, data)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, 'Item Price', %s, %s)""",
-			(
-				frappe.generate_hash(length=10),
-				frappe.session.user,
-				frappe.session.user,
-				item_price_name,
-				_json.dumps({"added": [], "changed": changed, "removed": [], "row_changed": []}),
-			),
-			auto_commit=True,
-		)
-	except Exception:
-		frappe.log_error(frappe.get_traceback(), "PLE _write_version failed")
 
 
 @frappe.whitelist()

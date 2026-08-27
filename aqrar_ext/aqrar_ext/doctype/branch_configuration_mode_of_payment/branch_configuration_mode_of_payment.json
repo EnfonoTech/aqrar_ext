@@ -15,13 +15,16 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Mode of Payment",
-   "options": "Mode of Payment"
+   "options": "Mode of Payment",
+   "reqd": 1
   },
   {
    "fieldname": "type",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Type"
+   "label": "Type",
+   "options": "\nCash\nBank\nCard\nCredit\nGeneral",
+   "description": "Mirrors the Mode of Payment type; used to bucket the day-close report."
   }
  ],
  "grid_page_length": 50,

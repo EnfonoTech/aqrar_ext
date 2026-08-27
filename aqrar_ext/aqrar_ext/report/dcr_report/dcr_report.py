@@ -2,8 +2,32 @@
 # Copyright (c) 2026, Aravind R and contributors
 # For license information, please see license.txt
 #DCR Report
+# NOTE: `DCR Report` and `Daily Report Combined` overlap heavily (both answer
+# CR-009 "day summary"). They differ deliberately:
+#   * DCR Report          - grouped by transaction type, company + cost centre
+#                           filters, drill-down rows. This is the day-close view.
+#   * Daily Report Combined - flat per-type listing, no company/cost-centre filter.
+# Confirm with Aqrar which one is in use before extending either (CR-009 open
+# question: "aqrar_ext or RMAX-Custom?"). Do not fix a bug in only one of them.
 import frappe
 from frappe import _
+
+# Only submitted vouchers belong in a day-close cash report. Drafts used to be
+# included (docstatus IN (0,1)), which inflated every total.
+SUBMITTED = "docstatus = 1"
+
+
+def _payment_mode_expr(alias):
+    """`custom_payment_mode` is optional site config (CR-007).
+
+    Return a SQL expression that is safe on sites where the column was never
+    installed, instead of failing the whole report with "Unknown column".
+    The alias is supplied by this module, never by the user.
+    """
+    doctype = "Sales Invoice" if alias == "si" else "Purchase Invoice"
+    if frappe.db.has_column(doctype, "custom_payment_mode"):
+        return "{0}.custom_payment_mode".format(alias)
+    return "NULL"
 
 
 def execute(filters=None):
@@ -52,7 +76,7 @@ def get_columns():
 
 def get_data(filters):
     filters = filters or {}
-    
+
 
     filters["company"] = filters.get("company") if filters.get("company") else None
     filters["cost_center"] = filters.get("cost_center") if filters.get("cost_center") else None
@@ -60,7 +84,7 @@ def get_data(filters):
     date = filters.get("date")
     type_filter = filters.get("type")
     cost_center = filters.get("cost_center")
-    company = filters.get("company")  
+    company = filters.get("company")
 
     types = [
         "Cash Sales",
@@ -81,7 +105,7 @@ def get_data(filters):
         "Internal Transfer",
     ]
 
-    # If type filter is selected, show only that type  
+    # If type filter is selected, show only that type
     if type_filter:
         types = [type_filter]
 
@@ -152,7 +176,7 @@ def fetch_sales_invoices(t, date,company, cost_center):
                     ELSE SUM(per.allocated_amount)
                 END,
                 CASE
-                    WHEN si.custom_payment_mode = 'Cash' THEN si.grand_total
+                    WHEN {payment_mode} = 'Cash' THEN si.grand_total
                     ELSE 0
                 END
             )
@@ -163,7 +187,7 @@ def fetch_sales_invoices(t, date,company, cost_center):
             AND (
                 (
                     si.is_pos = 0
-                    AND si.custom_payment_mode = 'Cash'
+                    AND {payment_mode} = 'Cash'
                 )
                 OR
                 (
@@ -196,7 +220,7 @@ def fetch_sales_invoices(t, date,company, cost_center):
                     ELSE SUM(per.allocated_amount)
                 END,
                 CASE
-                    WHEN si.custom_payment_mode = 'Card' THEN si.grand_total
+                    WHEN {payment_mode} = 'Card' THEN si.grand_total
                     ELSE 0
                 END
             )
@@ -207,7 +231,7 @@ def fetch_sales_invoices(t, date,company, cost_center):
             AND (
                 (
                     si.is_pos = 0
-                    AND si.custom_payment_mode = 'Card'
+                    AND {payment_mode} = 'Card'
                 )
                 OR
                 (
@@ -236,7 +260,7 @@ def fetch_sales_invoices(t, date,company, cost_center):
         date_condition = """
             AND si.posting_date = %(date)s
             AND si.is_pos = 0
-            AND si.custom_payment_mode = 'Credit'
+            AND {payment_mode} = 'Credit'
             AND NOT EXISTS (
                 SELECT 1
                 FROM `tabPayment Entry Reference` per2
@@ -252,6 +276,10 @@ def fetch_sales_invoices(t, date,company, cost_center):
         join_type = "LEFT"
 
 
+    payment_mode = _payment_mode_expr("si")
+    amount_field = amount_field.format(payment_mode=payment_mode)
+    date_condition = date_condition.format(payment_mode=payment_mode)
+
     query = f"""
         SELECT si.name AS voucher_no,
                {amount_field} AS amount,
@@ -266,7 +294,7 @@ def fetch_sales_invoices(t, date,company, cost_center):
             
          LEFT JOIN `tabSales Invoice Payment` sip
             ON sip.parent = si.name
-        WHERE si.docstatus IN (0,1)
+        WHERE si.docstatus = 1
               AND si.is_return=0
               {date_condition}
               AND ( %(company)s IS NULL OR %(company)s = '' OR si.company = %(company)s )
@@ -277,10 +305,8 @@ def fetch_sales_invoices(t, date,company, cost_center):
     return frappe.db.sql(query, {"date": date, "company": company, "cost_center": cost_center}, as_dict=True)
 
 
-def fetch_purchase_invoices(t, date,company, cost_center):
+def fetch_purchase_invoices(t, date, company, cost_center):
     """Fetch Purchase Invoice rows per type & MoP"""
-
-    date_condition = f"AND pi.posting_date = '{date}'" if date else ""
 
     if t == "Cash Purchases":
         amount_field = "IFNULL(SUM(per.allocated_amount),0)"
@@ -327,7 +353,7 @@ def fetch_purchase_invoices(t, date,company, cost_center):
             ON per.reference_name = pi.name AND per.reference_doctype='Purchase Invoice'
         LEFT JOIN `tabPayment Entry` pe
             ON pe.name = per.parent 
-        WHERE pi.docstatus IN (0,1)
+        WHERE pi.docstatus = 1
               AND pi.is_return=0
               {date_condition}
               AND ( %(company)s IS NULL OR %(company)s = '' OR pi.company = %(company)s )
@@ -373,7 +399,7 @@ def get_sales_returns(date,company,cost_center):
             ON per.reference_name=si.name AND per.reference_doctype='Sales Invoice'
         LEFT JOIN `tabPayment Entry` pe
             ON pe.name = per.parent
-        WHERE si.docstatus IN (0,1)
+        WHERE si.docstatus = 1
             AND si.is_return=1
             AND si.posting_date = %(date)s
             AND ( %(company)s IS NULL OR %(company)s = '' OR si.company = %(company)s )
@@ -386,7 +412,7 @@ def get_sales_returns(date,company,cost_center):
 
 
 def get_purchase_returns(date,company,cost_center):
-    # Fetch purchase returns for the exact invoice posting date only 
+    # Fetch purchase returns for the exact invoice posting date only
     return frappe.db.sql("""
         SELECT
             'Purchase Return' AS document,
@@ -405,7 +431,7 @@ def get_purchase_returns(date,company,cost_center):
             ON per.reference_name=pi.name AND per.reference_doctype='Purchase Invoice'
         LEFT JOIN `tabPayment Entry` pe
             ON pe.name = per.parent
-        WHERE pi.docstatus IN (0,1) AND pi.is_return=1
+        WHERE pi.docstatus = 1 AND pi.is_return=1
               AND pi.posting_date = %(date)s
               AND ( %(company)s IS NULL OR %(company)s = '' OR pi.company = %(company)s )
               AND ( %(cost_center)s IS NULL OR %(cost_center)s = '' OR pi.cost_center = %(cost_center)s )
@@ -428,12 +454,14 @@ def get_customer_receipts(date, company=None, cost_center=None):
             AND per.reference_doctype = 'Sales Invoice'
         INNER JOIN `tabSales Invoice` si
             ON si.name = per.reference_name
-        WHERE pe.docstatus IN (0,1)
+        WHERE pe.docstatus = 1
               AND pe.posting_date = %(date)s
               AND pe.party_type = 'Customer'
                AND pe.posting_date != si.posting_date
               AND ( %(company)s IS NULL OR %(company)s = '' OR pe.company = %(company)s )
               AND ( %(cost_center)s IS NULL OR %(cost_center)s = '' OR pe.cost_center = %(cost_center)s )
+        GROUP BY pe.name, pe.paid_amount
+        ORDER BY pe.posting_date ASC
     """, {
         "date": date,
         "company": company,
@@ -455,7 +483,7 @@ def get_supplier_payments(date, company, cost_center):
             AND per.reference_doctype = 'Purchase Invoice'
         LEFT JOIN `tabPurchase Invoice` pi
             ON pi.name = per.reference_name
-        WHERE pe.docstatus IN (0,1)
+        WHERE pe.docstatus = 1
               AND pe.posting_date = %(date)s
               AND pe.party_type = 'Supplier'
               AND ( %(company)s IS NULL OR %(company)s = '' OR pe.company = %(company)s )
@@ -495,11 +523,11 @@ def get_journal_entries(date, report_type=None, company=None, cost_center=None):
                 ON jea.parent=je.name
             INNER JOIN `tabAccount` acc
                 ON acc.name=jea.account
-            WHERE je.docstatus IN (0,1)
+            WHERE je.docstatus = 1
                   AND je.posting_date=%(date)s
                   AND {conditions}
-                  AND (%(company)s IS NULL OR je.company = %(company)s)
-                  AND (%(cost_center)s IS NULL OR jea.cost_center = %(cost_center)s)
+                  AND ( %(company)s IS NULL OR %(company)s = '' OR je.company = %(company)s )
+                  AND ( %(cost_center)s IS NULL OR %(cost_center)s = '' OR jea.cost_center = %(cost_center)s )
         """, {"date": date,"company": company,"cost_center": cost_center}, as_dict=True)
 
     else:
@@ -516,10 +544,10 @@ def get_journal_entries(date, report_type=None, company=None, cost_center=None):
                 ON jea.parent = je.name
             INNER JOIN `tabAccount` acc
                 ON acc.name = jea.account
-            WHERE je.docstatus IN (0,1)
+            WHERE je.docstatus = 1
                   AND je.posting_date = %(date)s
-                  AND (%(company)s IS NULL OR je.company = %(company)s)
-                  AND (%(cost_center)s IS NULL OR jea.cost_center = %(cost_center)s)
+                  AND ( %(company)s IS NULL OR %(company)s = '' OR je.company = %(company)s )
+                  AND ( %(cost_center)s IS NULL OR %(cost_center)s = '' OR jea.cost_center = %(cost_center)s )
             GROUP BY je.name
             HAVING SUM(CASE WHEN acc.account_type IN ('Bank','Cash') THEN 1 ELSE 0 END) = 0
         """, {"date": date, "company": company,"cost_center": cost_center}, as_dict=True)
@@ -535,11 +563,11 @@ def get_internal_transfers(date, company=None, cost_center=None):
             pe.paid_amount AS amount,
             pe.paid_amount AS invoice_total
         FROM `tabPayment Entry` pe
-        WHERE pe.docstatus IN (0,1)
+        WHERE pe.docstatus = 1
               AND pe.payment_type = 'Internal Transfer'
               AND pe.posting_date = %(date)s
-              AND ( %(company)s IS NULL OR pe.company = %(company)s )
-              AND ( %(cost_center)s IS NULL OR pe.cost_center = %(cost_center)s )
+              AND ( %(company)s IS NULL OR %(company)s = '' OR pe.company = %(company)s )
+              AND ( %(cost_center)s IS NULL OR %(cost_center)s = '' OR pe.cost_center = %(cost_center)s )
     """, {
         "date": date,
         "company": company,

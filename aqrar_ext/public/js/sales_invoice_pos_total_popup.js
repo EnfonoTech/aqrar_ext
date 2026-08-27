@@ -14,7 +14,14 @@ frappe.ui.form.on("Sales Invoice", {
 			callback: function (res) {
 				const modes = res.message || [];
 				if (!modes.length) {
-					frappe.msgprint(__("No payment modes configured for this company."));
+					frappe.msgprint({
+						title: __("No Payment Modes"),
+						message: __(
+							"No Mode of Payment for {0} has a default Cash/Bank account. Configure one, or add modes to this branch's Branch Configuration.",
+							[frm.doc.company]
+						),
+						indicator: "orange",
+					});
 					return;
 				}
 				aqrar_show_payment_popup(frm, modes);
@@ -26,6 +33,8 @@ frappe.ui.form.on("Sales Invoice", {
 function aqrar_show_payment_popup(frm, payment_modes) {
 	if (frappe.flags.aqrar_payment_popup_showing) return;
 	frappe.flags.aqrar_payment_popup_showing = true;
+
+	prime_mode_types();
 
 	const invoice_total = flt(frm.doc.rounded_total || frm.doc.grand_total || 0);
 	const currency = frm.doc.currency || "";
@@ -88,6 +97,14 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 			d.hide();
 			frappe.flags.aqrar_payment_popup_showing = false;
 			frappe.flags.aqrar_skip_payment_popup = true;
+
+			// CR-009: the day-close report classifies the invoice by this field.
+			if (frm.fields_dict.custom_payment_mode) {
+				frm.doc.custom_payment_mode = mode === "Credit" ? "Credit" : classify_mode(mode);
+			}
+			if (frm.fields_dict.custom_partial_payment_amount && mode === "Credit") {
+				frm.doc.custom_partial_payment_amount = amount;
+			}
 
 			frm.save("Submit")
 				.then(function () {
@@ -153,4 +170,25 @@ function aqrar_show_payment_popup(frm, payment_modes) {
 	});
 
 	d.show();
+}
+
+// Map a Mode of Payment onto the Cash / Card buckets the day-close report uses.
+// The type map is fetched once per session and cached on the module.
+let aqrar_mode_types = null;
+
+function prime_mode_types() {
+	if (aqrar_mode_types) return;
+	frappe.call({
+		method: "aqrar_ext.api.sales_invoice.get_mode_of_payment_types",
+		callback: function (r) {
+			aqrar_mode_types = r.message || {};
+		},
+	});
+}
+
+function classify_mode(mode) {
+	const type = (aqrar_mode_types || {})[mode];
+	if (type) return type === "Cash" ? "Cash" : "Card";
+	// Fall back to the mode name when the type map has not arrived yet.
+	return mode === "Cash" ? "Cash" : "Card";
 }

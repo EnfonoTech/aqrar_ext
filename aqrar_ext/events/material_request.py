@@ -1,59 +1,105 @@
-# aqrar_ext: Material Request — branch-user approval enforcement
+"""Material Request customisations (CR-013 / CR-029)."""
+
 import frappe
 from frappe import _
+from frappe.utils import flt
+
+CLOSE_REASON_FIELD = "custom_close_reason"
 
 
-def validate_branch_user(doc, method):
-    """Ensure Branch Users can only approve MRs for their own warehouse."""
-    user = frappe.session.user
-    roles = frappe.get_roles(user)
+def validate_branch_user(doc, method=None):
+	"""Branch Users may only act on Material Requests for their own warehouse."""
+	user = frappe.session.user
+	if user == "Administrator":
+		return
 
-    # Only enforce for Branch Users, not central admins/managers
-    if "Branch User" not in roles or "Stock Manager" in roles or "System Manager" in roles:
-        return
+	roles = set(frappe.get_roles(user))
+	if "Branch User" not in roles or roles & {"Stock Manager", "System Manager"}:
+		return
 
-    # Get warehouses from MR
-    warehouses = []
-    if doc.set_warehouse:
-        warehouses.append(doc.set_warehouse)
-    if doc.set_from_warehouse:
-        warehouses.append(doc.set_from_warehouse)
-    for item in doc.items:
-        if item.warehouse:
-            warehouses.append(item.warehouse)
+	warehouses = set()
+	if doc.get("set_warehouse"):
+		warehouses.add(doc.set_warehouse)
+	if doc.get("set_from_warehouse"):
+		warehouses.add(doc.set_from_warehouse)
+	for item in doc.items:
+		if item.warehouse:
+			warehouses.add(item.warehouse)
 
-    if not warehouses:
-        return
+	if not warehouses:
+		return
 
-    # Check user has permission for at least one of the MR's warehouses
-    user_warehouses = frappe.get_all("User Permission", filters={
-        "user": user,
-        "allow": "Warehouse",
-        "for_value": ["in", list(set(warehouses))],
-    }, pluck="for_value")
+	permitted = frappe.get_all(
+		"User Permission",
+		filters={"user": user, "allow": "Warehouse", "for_value": ("in", list(warehouses))},
+		pluck="for_value",
+	)
+	if permitted:
+		return
 
-    if not user_warehouses:
-        frappe.throw(
-            _("You do not have permission to approve Material Requests for this warehouse. "
-              "Please contact your branch administrator.")
-        )
+	frappe.throw(
+		_(
+			"You do not have permission to raise or approve Material Requests for this "
+			"warehouse. Please contact your branch administrator."
+		),
+		title=_("Warehouse Not Permitted"),
+	)
+
+
+def _get_material_request(mr_name):
+	if not mr_name:
+		frappe.throw(_("Material Request is required"))
+
+	if not frappe.db.exists("Material Request", mr_name):
+		frappe.throw(_("Material Request {0} not found").format(mr_name))
+
+	# Closing/reopening changes the document's operational state — require write.
+	frappe.has_permission("Material Request", "write", doc=mr_name, throw=True)
+
+	return frappe.get_doc("Material Request", mr_name)
 
 
 @frappe.whitelist()
-def close_material_request(mr_name, reason):
-    """Close an MR with a reason, bypassing form-level status restrictions."""
-    frappe.db.set_value("Material Request", mr_name, "custom_close_reason", reason)
-    frappe.db.set_value("Material Request", mr_name, "status", "Stopped", update_modified=True)
-    frappe.db.commit()
+def close_material_request(mr_name, reason=None):
+	"""Close an MR with the remaining quantity unfulfilled (CR-013)."""
+	doc = _get_material_request(mr_name)
+
+	if doc.docstatus != 1:
+		frappe.throw(_("Only a submitted Material Request can be closed."))
+	if doc.status == "Stopped":
+		return {"status": doc.status}
+
+	if frappe.db.has_column("Material Request", CLOSE_REASON_FIELD):
+		frappe.db.set_value("Material Request", doc.name, CLOSE_REASON_FIELD, reason or "")
+
+	# `status` carries allow_on_submit; set it directly rather than re-saving the
+	# submitted parent (which would re-validate every child row).
+	frappe.db.set_value("Material Request", doc.name, "status", "Stopped")
+	doc.add_comment("Info", _("Closed. Reason: {0}").format(reason or _("not given")))
+
+	return {"status": "Stopped"}
 
 
 @frappe.whitelist()
 def reopen_material_request(mr_name):
-    """Reopen a closed MR."""
-    status = "Pending"
-    per_ordered = frappe.db.get_value("Material Request", mr_name, "per_ordered") or 0
-    if per_ordered > 0:
-        status = "Partially Ordered"
-    frappe.db.set_value("Material Request", mr_name, "custom_close_reason", "")
-    frappe.db.set_value("Material Request", mr_name, "status", status, update_modified=True)
-    frappe.db.commit()
+	"""Reopen a closed MR, restoring the status implied by its fulfilment."""
+	doc = _get_material_request(mr_name)
+
+	if doc.docstatus != 1:
+		frappe.throw(_("Only a submitted Material Request can be reopened."))
+
+	per_ordered = flt(doc.per_ordered)
+	if per_ordered >= 100:
+		status = "Ordered"
+	elif per_ordered > 0:
+		status = "Partially Ordered"
+	else:
+		status = "Pending"
+
+	if frappe.db.has_column("Material Request", CLOSE_REASON_FIELD):
+		frappe.db.set_value("Material Request", doc.name, CLOSE_REASON_FIELD, "")
+
+	frappe.db.set_value("Material Request", doc.name, "status", status)
+	doc.add_comment("Info", _("Reopened as {0}").format(status))
+
+	return {"status": status}
