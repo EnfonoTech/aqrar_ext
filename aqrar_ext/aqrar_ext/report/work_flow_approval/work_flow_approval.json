@@ -22,6 +22,18 @@
  "roles": [
   {
    "role": "System Manager"
+  },
+  {
+   "role": "Branch Approver"
+  },
+  {
+   "role": "Branch Accountant"
+  },
+  {
+   "role": "Stock Manager"
+  },
+  {
+   "role": "Accounts Manager"
   }
  ],
  "timeout": 0

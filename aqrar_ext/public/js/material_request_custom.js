@@ -47,18 +47,19 @@ frappe.ui.form.on("Material Request", {
                         method: "aqrar_ext.events.material_request.reopen_material_request",
                         args: { mr_name: frm.doc.name },
                         freeze: true,
-                        callback: function () { frm.reload_doc(); },
+                        freeze_message: __("Reopening..."),
+                        callback: function (r) {
+                            if (r.exc) return;
+                            frm.reload_doc();
+                        },
                     });
                 });
             }, __("Actions"));
         }
     },
 
-    before_save(frm) {
-        if (frm.doc.custom_close_reason && frm.doc.docstatus === 1) {
-            frm.set_value("status", "Stopped");
-        }
-    },
+    // Status is owned by the server endpoints below — setting it here too
+    // raced with them and could write "Stopped" onto a reopened request.
 });
 
 function show_fulfillment(frm) {
@@ -81,8 +82,8 @@ function show_fulfillment(frm) {
         var color = pct >= 100 ? "#16a34a" : pct > 0 ? "#d97706" : "#6b7280";
 
         rows_html += '<tr>' +
-            '<td style="padding:4px 8px;">' + (item.item_code || "") + '</td>' +
-            '<td style="padding:4px 8px;color:#333;">' + (item.item_name || "") + '</td>' +
+            '<td style="padding:4px 8px;">' + frappe.utils.escape_html(item.item_code || "") + '</td>' +
+            '<td style="padding:4px 8px;color:#333;">' + frappe.utils.escape_html(item.item_name || "") + '</td>' +
             '<td style="padding:4px 8px;text-align:center;">' + req + '</td>' +
             '<td style="padding:4px 8px;text-align:center;color:#16a34a;font-weight:600;">' + done + '</td>' +
             '<td style="padding:4px 8px;text-align:center;color:' + (pending > 0 ? "#dc2626" : "#16a34a") + ';font-weight:600;">' + pending + '</td>' +
@@ -139,7 +140,11 @@ function show_close_dialog(frm) {
                     reason: values.reason,
                 },
                 freeze: true,
-                callback: function () { frm.reload_doc(); },
+                freeze_message: __("Closing..."),
+                callback: function (r) {
+                    if (r.exc) return;
+                    frm.reload_doc();
+                },
             });
         },
     });

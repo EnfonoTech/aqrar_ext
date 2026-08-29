@@ -98,23 +98,51 @@ function add_price_assist_button(frm, config) {
 
 // ── Last Price column ─────────────────────────────────────────────────────
 
+// One request per document, not one per row: a 40-line invoice used to fire
+// 40 separate calls on every refresh.
 function update_all_last_prices(frm, config) {
     if (frm.doc.docstatus !== 0) return;
-    (frm.doc.items || []).forEach(row => {
-        if (row.item_code) update_row_last_price(frm, row, config);
+
+    const rows = (frm.doc.items || []).filter(row => row.item_code);
+    if (!rows.length) return;
+
+    const item_codes = [...new Set(rows.map(row => row.item_code))];
+
+    frappe.call({
+        method: "aqrar_ext.api.get_last_sold_prices",
+        args: {
+            customer: frm.doc[config.customer_field],
+            item_codes: JSON.stringify(item_codes),
+            source: config.source,
+        },
+        callback(r) {
+            if (r.exc || !r.message) return;
+            if (frm.doc.docstatus !== 0) return;
+            rows.forEach(row => {
+                frappe.model.set_value(
+                    row.doctype, row.name, "custom_last_price", r.message[row.item_code] || 0
+                );
+            });
+        },
     });
 }
 
 function update_row_last_price(frm, row, config) {
-    if (frm.doc.docstatus !== 0) return;
-    const party = frm.doc[config.customer_field];
+    if (frm.doc.docstatus !== 0 || !row.item_code) return;
+
     frappe.call({
         method: "aqrar_ext.api.get_last_sold_price",
-        args: { customer: party, item_code: row.item_code, source: config.source },
+        args: {
+            customer: frm.doc[config.customer_field],
+            item_code: row.item_code,
+            source: config.source,
+        },
         callback(r) {
-            if (!r.message) return;
-            frappe.model.set_value(row.doctype, row.name, "custom_last_price", r.message.last_price || 0);
-        }
+            if (r.exc || !r.message) return;
+            frappe.model.set_value(
+                row.doctype, row.name, "custom_last_price", r.message.last_price || 0
+            );
+        },
     });
 }
 

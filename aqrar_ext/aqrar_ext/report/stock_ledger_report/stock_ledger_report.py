@@ -1,3 +1,5 @@
+import re
+
 import frappe
 from frappe import _
 from frappe.utils import flt
@@ -99,7 +101,7 @@ def get_data(filters):
 		if include_uom:
 			conv = flt(row.get("uom_conv_factor") or 0)
 			row["uom_qty"] = flt(row["qty_after_transaction"]) / conv if conv else 0
-			row["alt_uom"] = include_uom
+			row["alt_uom"] = include_uom if conv else None
 
 		data.append(row)
 
@@ -177,9 +179,16 @@ def _build_conditions(filters):
 
 
 def _parse_multiselect(value):
-	"""MultiSelectList sends a list or a comma-joined string — normalise to list."""
+	"""Normalise a filter value to a list.
+
+	MultiSelectList sends a list; a Link/Data filter sends a plain string; and
+	hand-typed values arrive newline- or comma-separated. The previous version
+	split on newlines only, so "A,B" was treated as one item code.
+	"""
 	if not value:
 		return []
-	if isinstance(value, list):
-		return [v for v in value if v]
-	return [v.strip() for v in str(value).split("\n") if v.strip()]
+	if isinstance(value, (list, tuple, set)):
+		return [str(v).strip() for v in value if v and str(v).strip()]
+
+	parts = re.split(r"[\n,]", str(value))
+	return [p.strip() for p in parts if p.strip()]

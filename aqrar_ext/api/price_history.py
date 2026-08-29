@@ -1,320 +1,219 @@
+"""Per-party price history (CR-006).
+
+All queries are parameterised; no filter value is ever interpolated into SQL.
+"""
+
 import frappe
-from frappe.utils import flt, cint
+from frappe.utils import cint, flt
+
+# (child table, parent table, party field). These are module constants — the
+# only values ever interpolated into the SQL below, never user input.
+SALES = ("Sales Invoice Item", "Sales Invoice", "customer")
+PURCHASE = ("Purchase Invoice Item", "Purchase Invoice", "supplier")
+
+
+def _tables(source):
+	return PURCHASE if source == "purchase" else SALES
+
+
+def _check_read_permission(source):
+	frappe.has_permission("Purchase Invoice" if source == "purchase" else "Sales Invoice",
+		"read", throw=True)
 
 
 @frappe.whitelist()
 def get_last_sold_price(customer=None, item_code=None, source="sales"):
+	"""Last transacted rate for one item, preferring this party's own history."""
+	if not item_code:
+		return {"last_price": 0}
 
-    if not item_code:
-        return {}
-
-    if source == "purchase":
-        return get_last_purchase_price(customer, item_code)
-
-    filters = {
-        "item_code": item_code
-    }
-
-    customer_condition = ""
-
-    if customer:
-        customer_condition = "AND si.customer = %(customer)s"
-        filters["customer"] = customer
-
-    row = frappe.db.sql(f"""
-        SELECT
-            sii.rate
-        FROM `tabSales Invoice Item` sii
-        INNER JOIN `tabSales Invoice` si
-            ON si.name = sii.parent
-        WHERE
-            sii.item_code = %(item_code)s
-            AND si.docstatus = 1
-            {customer_condition}
-        ORDER BY
-            si.posting_date DESC,
-            si.creation DESC
-        LIMIT 1
-    """, filters, as_dict=True)
-
-    # fallback general last sold price
-    if not row:
-
-        row = frappe.db.sql("""
-            SELECT
-                sii.rate
-            FROM `tabSales Invoice Item` sii
-            INNER JOIN `tabSales Invoice` si
-                ON si.name = sii.parent
-            WHERE
-                sii.item_code = %(item_code)s
-                AND si.docstatus = 1
-            ORDER BY
-                si.posting_date DESC,
-                si.creation DESC
-            LIMIT 1
-        """, filters, as_dict=True)
-
-    return {
-        "last_price": flt(row[0].rate) if row else 0
-    }
-
-
-def get_last_purchase_price(supplier=None, item_code=None):
-
-    filters = {"item_code": item_code}
-    supplier_condition = ""
-
-    if supplier:
-        supplier_condition = "AND pi.supplier = %(supplier)s"
-        filters["supplier"] = supplier
-
-    row = frappe.db.sql(f"""
-        SELECT
-            pii.rate
-        FROM `tabPurchase Invoice Item` pii
-        INNER JOIN `tabPurchase Invoice` pi
-            ON pi.name = pii.parent
-        WHERE
-            pii.item_code = %(item_code)s
-            AND pi.docstatus = 1
-            {supplier_condition}
-        ORDER BY
-            pi.posting_date DESC,
-            pi.creation DESC
-        LIMIT 1
-    """, filters, as_dict=True)
-
-    if not row:
-
-        row = frappe.db.sql("""
-            SELECT
-                pii.rate
-            FROM `tabPurchase Invoice Item` pii
-            INNER JOIN `tabPurchase Invoice` pi
-                ON pi.name = pii.parent
-            WHERE
-                pii.item_code = %(item_code)s
-                AND pi.docstatus = 1
-            ORDER BY
-                pi.posting_date DESC,
-                pi.creation DESC
-            LIMIT 1
-        """, filters, as_dict=True)
-
-    return {
-        "last_price": flt(row[0].rate) if row else 0
-    }
+	prices = get_last_sold_prices(customer=customer, item_codes=[item_code], source=source)
+	return {"last_price": flt(prices.get(item_code))}
 
 
 @frappe.whitelist()
-def get_item_insights(customer=None, item_code=None, company=None, source="sales", limit=6, other_limit=5):
+def get_last_sold_prices(customer=None, item_codes=None, source="sales"):
+	"""Batch version of :func:`get_last_sold_price` — one round trip per document.
 
-    limit       = cint(limit)
-    other_limit = cint(other_limit)
+	Returns ``{item_code: rate}``. Falls back to the last general rate for any
+	item the party has never transacted.
+	"""
+	item_codes = frappe.parse_json(item_codes) if isinstance(item_codes, str) else item_codes
+	item_codes = [c for c in (item_codes or []) if c]
+	if not item_codes:
+		return {}
 
-    stock = frappe.db.sql("""
-        SELECT warehouse, projected_qty
-        FROM `tabBin`
-        WHERE item_code = %s
-        ORDER BY warehouse
-    """, item_code, as_dict=True)
+	_check_read_permission(source)
+	child, parent, party_field = _tables(source)
 
-    if source == "purchase":
-        price_history = frappe.db.sql("""
-            SELECT
-                pi.supplier  AS customer,
-                pi.currency,
-                pii.uom,
-                pii.rate,
-                pii.qty,
-                pi.posting_date,
-                pi.name      AS si
-            FROM `tabPurchase Invoice Item` pii
-            INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
-            WHERE pii.item_code = %s AND pi.supplier = %s AND pi.docstatus = 1
-            ORDER BY pi.posting_date DESC, pi.creation DESC
-            LIMIT %s
-        """, (item_code, customer, limit), as_dict=True)
+	prices = {}
+	if customer:
+		prices.update(_latest_rates(child, parent, item_codes, party_field, customer))
 
-        other_parties = frappe.db.sql("""
-            SELECT
-                pi.supplier  AS customer,
-                pi.currency,
-                pii.uom,
-                pii.rate
-            FROM `tabPurchase Invoice Item` pii
-            INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
-            WHERE pii.item_code = %s AND pi.supplier != %s AND pi.docstatus = 1
-            ORDER BY pi.posting_date DESC, pi.creation DESC
-            LIMIT %s
-        """, (item_code, customer or "", other_limit), as_dict=True)
+	missing = [c for c in item_codes if c not in prices]
+	if missing:
+		prices.update(_latest_rates(child, parent, missing, party_field, None))
 
-        last_purchase = frappe.db.sql("""
-            SELECT pii.rate
-            FROM `tabPurchase Invoice Item` pii
-            INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
-            WHERE pii.item_code = %s AND pi.docstatus = 1
-            ORDER BY pi.posting_date DESC, pi.creation DESC
-            LIMIT 1
-        """, item_code, as_dict=True)
+	return prices
 
-        return {
-            "stock":              stock,
-            "price_history":      price_history,
-            "other_customers":    other_parties,
-            "last_rate":          flt(price_history[0].rate) if price_history else 0,
-            "last_purchase_rate": flt(last_purchase[0].rate) if last_purchase else 0,
-        }
 
-    price_history = frappe.db.sql("""
-        SELECT
-            si.customer,
-            si.currency,
-            sii.uom,
-            sii.rate,
-            sii.qty,
-            si.posting_date,
-            si.name AS si
-        FROM `tabSales Invoice Item` sii
-        INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
-        WHERE sii.item_code = %s AND si.customer = %s AND si.docstatus = 1
-        ORDER BY si.posting_date DESC, si.creation DESC
-        LIMIT %s
-    """, (item_code, customer, limit), as_dict=True)
+def _latest_rates(child, parent, item_codes, party_field, party):
+	"""Latest rate per item, optionally restricted to one party.
 
-    other_customers = frappe.db.sql("""
-        SELECT
-            si.customer,
-            si.currency,
-            sii.uom,
-            sii.rate
-        FROM `tabSales Invoice Item` sii
-        INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
-        WHERE sii.item_code = %s AND si.customer != %s AND si.docstatus = 1
-        ORDER BY si.posting_date DESC, si.creation DESC
-        LIMIT %s
-    """, (item_code, customer or "", other_limit), as_dict=True)
+	Uses a window function so the whole batch is a single query rather than one
+	query per row.
+	"""
+	values = {"item_codes": tuple(item_codes)}
+	party_condition = ""
+	if party:
+		party_condition = "AND p.{0} = %(party)s".format(party_field)
+		values["party"] = party
 
-    purchase = frappe.db.sql("""
-        SELECT pii.rate
-        FROM `tabPurchase Invoice Item` pii
-        INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
-        WHERE pii.item_code = %s AND pi.docstatus = 1
-        ORDER BY pi.posting_date DESC, pi.creation DESC
-        LIMIT 1
-    """, item_code, as_dict=True)
-
-    return {
-        "stock":              stock,
-        "price_history":      price_history,
-        "other_customers":    other_customers,
-        "last_rate":          flt(price_history[0].rate) if price_history else 0,
-        "last_purchase_rate": flt(purchase[0].rate) if purchase else 0,
-    }
+	rows = frappe.db.sql(
+		"""
+		SELECT item_code, rate FROM (
+			SELECT
+				c.item_code AS item_code,
+				c.rate AS rate,
+				ROW_NUMBER() OVER (
+					PARTITION BY c.item_code
+					ORDER BY p.posting_date DESC, p.creation DESC
+				) AS rn
+			FROM `tab{child}` c
+			INNER JOIN `tab{parent}` p ON p.name = c.parent
+			WHERE c.item_code IN %(item_codes)s
+			  AND p.docstatus = 1
+			  {party_condition}
+		) ranked
+		WHERE rn = 1
+		""".format(child=child, parent=parent, party_condition=party_condition),
+		values,
+		as_dict=True,
+	)
+	return {r.item_code: flt(r.rate) for r in rows}
 
 
 @frappe.whitelist()
-def get_item_price_history(item_code=None, source="sales", customer=None):
+def get_item_insights(
+	customer=None, item_code=None, company=None, source="sales", limit=6, other_limit=5
+):
+	"""Stock position + this party's price history + other parties' recent rates."""
+	if not item_code:
+		return {"stock": [], "price_history": [], "other_customers": [], "last_rate": 0,
+			"last_purchase_rate": 0}
 
-    if not item_code:
-        return {"history": [], "last_price": 0, "source": source}
+	_check_read_permission(source)
+	frappe.has_permission("Item", "read", doc=item_code, throw=True)
 
-    if source == "purchase":
-        supplier_cond = ""
-        params = [item_code]
-        if customer:
-            supplier_cond = "AND pi.supplier = %s"
-            params.append(customer)
+	limit = max(cint(limit), 1)
+	other_limit = max(cint(other_limit), 1)
+	child, parent, party_field = _tables(source)
 
-        rows = frappe.db.sql(f"""
-            SELECT
-                pii.item_code,
-                pii.item_name,
-                pii.parent AS invoice,
-                pi.supplier AS party,
-                pii.rate,
-                pii.qty,
-                pi.posting_date
-            FROM `tabPurchase Invoice Item` pii
-            INNER JOIN `tabPurchase Invoice` pi
-                ON pi.name = pii.parent
-            WHERE
-                pii.item_code = %s
-                AND pi.docstatus = 1
-                {supplier_cond}
-            ORDER BY
-                pi.posting_date DESC
-            LIMIT 100
-        """, params, as_dict=True)
+	bin_filters = {"item_code": item_code}
+	if company:
+		warehouses = frappe.get_all("Warehouse", filters={"company": company}, pluck="name")
+		if warehouses:
+			bin_filters["warehouse"] = ("in", warehouses)
 
-        last_price = frappe.db.sql(f"""
-            SELECT
-                pii.rate
-            FROM `tabPurchase Invoice Item` pii
-            INNER JOIN `tabPurchase Invoice` pi
-                ON pi.name = pii.parent
-            WHERE
-                pii.item_code = %s
-                AND pi.docstatus = 1
-                {supplier_cond}
-            ORDER BY
-                pi.posting_date DESC,
-                pi.creation DESC
-            LIMIT 1
-        """, params, as_dict=True)
+	stock = frappe.get_all(
+		"Bin",
+		filters=bin_filters,
+		fields=["warehouse", "actual_qty", "projected_qty"],
+		order_by="warehouse",
+	)
 
-        return {
-            "history": rows,
-            "last_price": last_price[0].rate if last_price else 0,
-            "source": "purchase"
-        }
+	price_history = frappe.db.sql(
+		"""
+		SELECT
+			p.{party_field} AS customer,
+			p.currency,
+			c.uom,
+			c.rate,
+			c.qty,
+			p.posting_date,
+			p.name AS si
+		FROM `tab{child}` c
+		INNER JOIN `tab{parent}` p ON p.name = c.parent
+		WHERE c.item_code = %(item_code)s
+		  AND p.docstatus = 1
+		  AND (%(party)s IS NULL OR p.{party_field} = %(party)s)
+		ORDER BY p.posting_date DESC, p.creation DESC
+		LIMIT %(limit)s
+		""".format(child=child, parent=parent, party_field=party_field),
+		{"item_code": item_code, "party": customer or None, "limit": limit},
+		as_dict=True,
+	)
 
-    customer_cond = ""
-    params = [item_code]
-    if customer:
-        customer_cond = "AND si.customer = %s"
-        params.append(customer)
+	other_parties = frappe.db.sql(
+		"""
+		SELECT
+			p.{party_field} AS customer,
+			p.currency,
+			c.uom,
+			c.rate
+		FROM `tab{child}` c
+		INNER JOIN `tab{parent}` p ON p.name = c.parent
+		WHERE c.item_code = %(item_code)s
+		  AND p.docstatus = 1
+		  AND (%(party)s IS NULL OR p.{party_field} != %(party)s)
+		ORDER BY p.posting_date DESC, p.creation DESC
+		LIMIT %(limit)s
+		""".format(child=child, parent=parent, party_field=party_field),
+		{"item_code": item_code, "party": customer or None, "limit": other_limit},
+		as_dict=True,
+	)
 
-    rows = frappe.db.sql(f"""
-        SELECT
-            sii.item_code,
-            sii.item_name,
-            sii.parent AS invoice,
-            si.customer AS party,
-            sii.rate,
-            sii.qty,
-            si.posting_date
-        FROM `tabSales Invoice Item` sii
-        INNER JOIN `tabSales Invoice` si
-            ON si.name = sii.parent
-        WHERE
-            sii.item_code = %s
-            AND si.docstatus = 1
-            {customer_cond}
-        ORDER BY
-            si.posting_date DESC
-        LIMIT 100
-    """, params, as_dict=True)
+	last_purchase = 0
+	if frappe.has_permission("Purchase Invoice", "read"):
+		last_purchase = flt(
+			_latest_rates(
+				"Purchase Invoice Item", "Purchase Invoice", [item_code], "supplier", None
+			).get(item_code)
+		)
 
-    last_price = frappe.db.sql(f"""
-        SELECT
-            sii.rate
-        FROM `tabSales Invoice Item` sii
-        INNER JOIN `tabSales Invoice` si
-            ON si.name = sii.parent
-        WHERE
-            sii.item_code = %s
-            AND si.docstatus = 1
-            {customer_cond}
-        ORDER BY
-            si.posting_date DESC,
-            si.creation DESC
-        LIMIT 1
-    """, params, as_dict=True)
+	return {
+		"stock": stock,
+		"price_history": price_history,
+		"other_customers": other_parties,
+		"last_rate": flt(price_history[0].rate) if price_history else 0,
+		"last_purchase_rate": last_purchase,
+	}
 
-    return {
-        "history": rows,
-        "last_price": last_price[0].rate if last_price else 0,
-        "source": "sales"
-    }
+
+@frappe.whitelist()
+def get_item_price_history(item_code=None, source="sales", customer=None, limit=100):
+	"""Full (capped) transaction history for one item, optionally per party."""
+	if not item_code:
+		return {"history": [], "last_price": 0, "source": source}
+
+	_check_read_permission(source)
+	child, parent, party_field = _tables(source)
+	limit = min(max(cint(limit) or 100, 1), 500)
+
+	rows = frappe.db.sql(
+		"""
+		SELECT
+			c.item_code,
+			c.item_name,
+			c.parent AS invoice,
+			p.{party_field} AS party,
+			c.rate,
+			c.qty,
+			p.posting_date
+		FROM `tab{child}` c
+		INNER JOIN `tab{parent}` p ON p.name = c.parent
+		WHERE c.item_code = %(item_code)s
+		  AND p.docstatus = 1
+		  AND (%(party)s IS NULL OR p.{party_field} = %(party)s)
+		ORDER BY p.posting_date DESC, p.creation DESC
+		LIMIT %(limit)s
+		""".format(child=child, parent=parent, party_field=party_field),
+		{"item_code": item_code, "party": customer or None, "limit": limit},
+		as_dict=True,
+	)
+
+	return {
+		"history": rows,
+		"last_price": flt(rows[0].rate) if rows else 0,
+		"source": "purchase" if source == "purchase" else "sales",
+	}
