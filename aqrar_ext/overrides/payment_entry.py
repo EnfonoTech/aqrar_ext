@@ -8,10 +8,18 @@ import frappe
 from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
 from frappe import _, bold
 
-# Modes that always require a reference, regardless of how they are typed.
-REFERENCE_MODE_NAMES = {"Bank Transfer", "Cheque", "Bank Draft", "Wire Transfer"}
-# ...plus any Mode of Payment configured with these types.
-REFERENCE_MODE_TYPES = {"Bank"}
+# Modes that require a bank/cheque reference number.
+#
+# NOTE: this is deliberately name-based, not driven by `Mode of Payment.type`.
+# On the Aqrar site the types are not trustworthy - "Bank Transfer" is typed
+# Cash while "Credit" and "Card" are typed Bank - so a type-based rule would
+# demand a cheque number on every credit sale. Add site-specific modes here.
+REFERENCE_MODE_NAMES = {
+	"Bank Transfer",
+	"Cheque",
+	"Bank Draft",
+	"Wire Transfer",
+}
 
 
 class CustomPaymentEntry(PaymentEntry):
@@ -20,12 +28,7 @@ class CustomPaymentEntry(PaymentEntry):
 		self.validate_bank_reference()
 
 	def requires_bank_reference(self):
-		if not self.mode_of_payment:
-			return False
-		if self.mode_of_payment in REFERENCE_MODE_NAMES:
-			return True
-		mode_type = frappe.db.get_value("Mode of Payment", self.mode_of_payment, "type")
-		return mode_type in REFERENCE_MODE_TYPES
+		return bool(self.mode_of_payment) and self.mode_of_payment in REFERENCE_MODE_NAMES
 
 	def validate_bank_reference(self):
 		if not self.requires_bank_reference():
