@@ -4,6 +4,9 @@ Everything here must be safe to run on every migrate and on a site that already
 has the records — it only ever fills gaps, never overwrites existing config.
 """
 
+import json
+import os
+
 import frappe
 from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
@@ -129,11 +132,84 @@ TEMPORARY_ITEM_SERIES = "TM-.#####"
 EXPENSE_CLAIM_WORKFLOW = "Expense Claim Approval"
 
 
+# Modes of Payment the app's payment popup and day-close report expect.
+# They are NOT created here: on a KSA site `Mode of Payment` carries mandatory
+# ZATCA fields (custom_zatca_payment_means_code), and guessing a tax code is not
+# this app's business. See check_expected_modes_of_payment().
+EXPECTED_MODES_OF_PAYMENT = ("Cash", "Card", "Credit")
+
+
+def before_migrate():
+	"""Entry point for hooks.before_migrate.
+
+	`sync_fixtures` imports fixture files in plain alphabetical order, so
+	`workflow.json` is read BEFORE `workflow_action_master.json` and
+	`workflow_state.json` - the very records its states and transitions link
+	to. On a fresh site that ordering aborts the migrate with a link
+	validation error, and `after_migrate` is far too late to help.
+
+	Seed those two masters from the fixture files themselves, so there is still
+	only one source of truth for them.
+	"""
+	_seed_from_fixture("workflow_state.json", "Workflow State", "workflow_state_name")
+	_seed_from_fixture(
+		"workflow_action_master.json", "Workflow Action Master", "workflow_action_name"
+	)
+
+
+def _seed_from_fixture(filename, doctype, title_field):
+	path = os.path.join(frappe.get_app_path("aqrar_ext"), "fixtures", filename)
+	if not os.path.exists(path):
+		return
+
+	try:
+		with open(path) as fixture_file:
+			records = json.load(fixture_file)
+	except (OSError, ValueError):
+		frappe.log_error(frappe.get_traceback(), "aqrar_ext: unreadable fixture {0}".format(filename))
+		return
+
+	for record in records or []:
+		name = record.get("name") or record.get(title_field)
+		if not name or frappe.db.exists(doctype, name):
+			continue
+		doc = frappe.get_doc({"doctype": doctype, title_field: name, "name": name})
+		doc.insert(ignore_permissions=True)
+
+
 def create():
 	"""Entry point for hooks.after_migrate."""
 	ensure_custom_fields()
 	ensure_temporary_item_naming_series()
+	check_expected_modes_of_payment()
 	install_expense_claim_workflow()
+
+
+def check_expected_modes_of_payment():
+	"""Warn (never throw) when a Mode of Payment the app relies on is absent.
+
+	This used to be a fixture (`fixtures/mode_of_payment.json`). That was wrong
+	twice over:
+
+	1. `sync_fixtures` imports EVERY json in fixtures/, ignoring the `fixtures`
+	   hook, so the file synced even though it was never declared. On a site
+	   with ksa_compliance it aborted the whole migrate with
+	   `MandatoryError: [Mode of Payment, Cash]: custom_zatca_payment_means_code`.
+	2. It carried `"accounts": []`, so a successful import would have wiped the
+	   default Cash/Bank account off every listed mode — the exact field the
+	   payment popup reads.
+	"""
+	missing = [
+		mode
+		for mode in EXPECTED_MODES_OF_PAYMENT
+		if not frappe.db.exists("Mode of Payment", mode)
+	]
+	if missing:
+		frappe.logger("aqrar_ext").warning(
+			"Mode(s) of Payment not configured: {0}. "
+			"The Sales Invoice payment popup only offers modes that have a "
+			"default account for the company.".format(", ".join(missing))
+		)
 
 
 def ensure_custom_fields():

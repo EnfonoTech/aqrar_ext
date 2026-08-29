@@ -70,6 +70,24 @@ one assumes they are done:
   question of which rate to apply.
 - **CR-038 (permission matrix document)** — a documentation deliverable.
 
+### Fixtures — two traps worth knowing
+
+`frappe.utils.fixtures.import_fixtures` imports **every** `.json` in
+`fixtures/`, ignoring the `fixtures` list in `hooks.py` (that list only governs
+*export*), and it imports them in plain alphabetical order.
+
+1. A stale `fixtures/mode_of_payment.json` therefore synced even though it was
+   never declared. On a site with `ksa_compliance` it aborted the whole migrate
+   (`MandatoryError: [Mode of Payment, Cash]: custom_zatca_payment_means_code`),
+   and had it succeeded it carried `"accounts": []`, which would have wiped the
+   default Cash/Bank account off every listed mode — the field the payment
+   popup reads. The file is gone; `setup_data.check_expected_modes_of_payment`
+   now only warns when an expected mode is missing.
+2. `workflow.json` sorts before `workflow_action_master.json` and
+   `workflow_state.json`, so on a fresh site the workflows import before the
+   states they link to. `setup_data.before_migrate` seeds those two masters
+   first.
+
 `DCR Report` and `Daily Report Combined` both answer CR-009 and overlap. Both
 are kept until Aqrar confirms which one is in use (an open question in the CR
 document); see the note at the top of each file before changing either.

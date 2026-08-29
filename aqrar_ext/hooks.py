@@ -112,6 +112,13 @@ fixtures = [
 	"Notification",
 ]
 
+# Runs before schema sync + fixture import: seeds the Workflow States and
+# Action Masters that fixtures/workflow.json links to (fixtures are imported in
+# plain alphabetical order, so workflow.json is read first).
+before_migrate = [
+	"aqrar_ext.setup_data.before_migrate",
+]
+
 after_migrate = [
 	"aqrar_ext.setup_data.create",
 ]
