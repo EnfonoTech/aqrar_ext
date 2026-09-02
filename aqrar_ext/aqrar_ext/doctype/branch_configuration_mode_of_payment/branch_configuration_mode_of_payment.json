@@ -19,12 +19,13 @@
    "reqd": 1
   },
   {
+   "fetch_from": "mode_of_payment.type",
+   "fetch_if_empty": 0,
    "fieldname": "type",
-   "fieldtype": "Select",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Type",
-   "options": "\nCash\nBank\nCard\nCredit\nGeneral",
-   "description": "Mirrors the Mode of Payment type; used to bucket the day-close report."
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

@@ -6,3 +6,4 @@
 # Patches added in this section will be executed after doctypes are migrated
 aqrar_ext.patches.fix_stock_entry_naming_series
 aqrar_ext.patches.rename_branch_configuration_to_branch
+aqrar_ext.patches.backfill_branch_config_mop_type
