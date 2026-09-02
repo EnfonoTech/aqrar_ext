@@ -125,6 +125,8 @@ fixtures = [
 	"Workflow",
 	"Custom DocPerm",
 	"Notification",
+	# every app ships its own desk Workspace, otherwise the module is invisible
+	{"dt": "Workspace", "filters": [["module", "=", "Aqrar Ext"]]},
 ]
 
 # Runs before schema sync + fixture import: seeds the Workflow States and

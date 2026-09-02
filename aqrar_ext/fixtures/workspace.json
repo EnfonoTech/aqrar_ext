@@ -1,0 +1,185 @@
+[
+ {
+  "doctype": "Workspace",
+  "name": "Aqrar",
+  "label": "Aqrar",
+  "title": "Aqrar",
+  "module": "Aqrar Ext",
+  "public": 1,
+  "is_hidden": 0,
+  "icon": "organization",
+  "sequence_id": 90.0,
+  "content": "[{\"id\": \"aqhdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Daily Work</b></span>\", \"col\": 12}}, {\"id\": \"aqs1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sales Invoice\", \"col\": 3}}, {\"id\": \"aqs2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Item\", \"col\": 3}}, {\"id\": \"aqs3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Customer\", \"col\": 3}}, {\"id\": \"aqs4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Work Flow Approval\", \"col\": 3}}, {\"id\": \"aqsp1\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"aqhdr2\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Pricing &amp; Branches</b></span>\", \"col\": 12}}, {\"id\": \"aqs5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Price List Bulk Editor\", \"col\": 3}}, {\"id\": \"aqs6\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Branch Configuration\", \"col\": 3}}, {\"id\": \"aqs7\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Aqrar Settings\", \"col\": 3}}, {\"id\": \"aqsp2\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"aqc1\", \"type\": \"card\", \"data\": {\"card_name\": \"Branch Setup\", \"col\": 4}}, {\"id\": \"aqc2\", \"type\": \"card\", \"data\": {\"card_name\": \"Reports\", \"col\": 4}}, {\"id\": \"aqc3\", \"type\": \"card\", \"data\": {\"card_name\": \"Masters\", \"col\": 4}}]",
+  "charts": [],
+  "number_cards": [],
+  "custom_blocks": [],
+  "quick_lists": [],
+  "shortcuts": [
+   {
+    "type": "DocType",
+    "link_to": "Sales Invoice",
+    "label": "Sales Invoice"
+   },
+   {
+    "type": "DocType",
+    "link_to": "Item",
+    "label": "Item"
+   },
+   {
+    "type": "DocType",
+    "link_to": "Customer",
+    "label": "Customer"
+   },
+   {
+    "type": "Report",
+    "link_to": "Work Flow Approval",
+    "label": "Work Flow Approval",
+    "doc_view": "Report"
+   },
+   {
+    "type": "Page",
+    "link_to": "price-list-bulk-editor",
+    "label": "Price List Bulk Editor"
+   },
+   {
+    "type": "DocType",
+    "link_to": "Branch Configuration",
+    "label": "Branch Configuration"
+   },
+   {
+    "type": "DocType",
+    "link_to": "Aqrar Settings",
+    "label": "Aqrar Settings"
+   }
+  ],
+  "links": [
+   {
+    "type": "Card Break",
+    "label": "Branch Setup",
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "DocType",
+    "link_to": "Branch Configuration",
+    "label": "Branch Configuration",
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "DocType",
+    "link_to": "Branch",
+    "label": "Branch",
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "DocType",
+    "link_to": "Aqrar Settings",
+    "label": "Aqrar Settings",
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Card Break",
+    "label": "Reports",
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "Report",
+    "link_to": "DCR Report",
+    "label": "DCR Report",
+    "is_query_report": 1,
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "Report",
+    "link_to": "Daily Report Combined",
+    "label": "Daily Report Combined",
+    "is_query_report": 1,
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "Report",
+    "link_to": "Customer Statement",
+    "label": "Customer Statement",
+    "is_query_report": 1,
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "Report",
+    "link_to": "Stock Ledger Report",
+    "label": "Stock Ledger Report",
+    "is_query_report": 1,
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "Report",
+    "link_to": "Work Flow Approval",
+    "label": "Work Flow Approval",
+    "is_query_report": 1,
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Card Break",
+    "label": "Masters",
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "DocType",
+    "link_to": "Item",
+    "label": "Item",
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "DocType",
+    "link_to": "Item Price",
+    "label": "Item Price",
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "DocType",
+    "link_to": "Customer",
+    "label": "Customer",
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "DocType",
+    "link_to": "Supplier",
+    "label": "Supplier",
+    "onboard": 0,
+    "hidden": 0
+   },
+   {
+    "type": "Link",
+    "link_type": "DocType",
+    "link_to": "Custom Quote",
+    "label": "Custom Quote",
+    "onboard": 0,
+    "hidden": 0
+   }
+  ]
+ }
+]
