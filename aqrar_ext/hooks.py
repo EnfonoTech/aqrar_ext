@@ -49,9 +49,23 @@ override_doctype_class = {
 # Standalone hook functions. Sales Invoice deliberately has both a controller
 # override (above) and doc_events: the controller wraps ERPNext internals, these
 # add independent Aqrar rules.
+# CR: branch-wise cost center on the header, the item rows and the tax rows.
+# Registered on `validate` so it runs AFTER ERPNext has applied its own
+# Item/Company defaults — otherwise core overwrites us.
+_COST_CENTER_HOOK = "aqrar_ext.aqrar_ext.utils.cost_center.apply_branch_cost_center"
+
 doc_events = {
+	"Purchase Invoice": {"validate": _COST_CENTER_HOOK},
+	"Delivery Note": {"validate": _COST_CENTER_HOOK},
+	"Sales Order": {"validate": _COST_CENTER_HOOK},
+	"Purchase Order": {"validate": _COST_CENTER_HOOK},
+	"Stock Entry": {"validate": _COST_CENTER_HOOK},
+	"Payment Entry": {"validate": _COST_CENTER_HOOK},
 	"Sales Invoice": {
-		"validate": "aqrar_ext.aqrar_ext.overrides.sales_invoice.validate",
+		"validate": [
+			"aqrar_ext.aqrar_ext.overrides.sales_invoice.validate",
+			_COST_CENTER_HOOK,
+		],
 		"before_save": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_save",
 		"before_print": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_print",
 	},
@@ -59,6 +73,7 @@ doc_events = {
 		"validate": "aqrar_ext.events.material_request.validate_branch_user",
 	},
 	"Purchase Receipt": {
+		"validate": _COST_CENTER_HOOK,
 		"before_cancel": "aqrar_ext.events.purchase_receipt.block_cancel_if_consumed",
 	},
 }
