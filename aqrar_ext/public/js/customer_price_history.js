@@ -211,7 +211,12 @@ $.extend(aqrar_ext.price_assist, {
             </div>
         `);
 
-        // Price history rows
+        // Price history rows. get_item_insights reads the PURCHASE tables when
+        // source === "purchase", so d.si is a Purchase Invoice name there —
+        // routing it to /app/sales-invoice/ gave a dead link on every Purchase
+        // Invoice, Purchase Order and Purchase Receipt (the purchase-history
+        // screen itself).
+        const hist_route = config.source === "purchase" ? "purchase-invoice" : "sales-invoice";
         price_history.forEach(d => {
             $box.append(
                 $(`<div class="pa-line">
@@ -219,7 +224,7 @@ $.extend(aqrar_ext.price_assist, {
                         <b>${d.rate}</b> (${d.currency || ""}, ${d.uom || ""})
                         <small>${d.qty} qty • ${frappe.format(d.posting_date, "Date")}</small>
                         <small class="pa-inv">
-                            <a href="/app/sales-invoice/${encodeURIComponent(d.si)}" target="_blank">${d.si}</a>
+                            <a href="/app/${hist_route}/${encodeURIComponent(d.si)}" target="_blank">${d.si}</a>
                         </small>
                     </div>
                     <button class="pa-use">Use</button>

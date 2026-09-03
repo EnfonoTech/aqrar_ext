@@ -11,6 +11,34 @@ from frappe.utils import cint, flt
 SALES = ("Sales Invoice Item", "Sales Invoice", "customer")
 PURCHASE = ("Purchase Invoice Item", "Purchase Invoice", "supplier")
 
+# Rows that are NOT a sale/purchase at the stated rate, and so must never win the
+# "last price" ranking nor be written into custom_last_price. Without these a
+# credit note line (positive rate, negative qty) or a free/sample line at rate 0
+# becomes the "last price" a salesperson is shown and trusts.
+#
+# Module constants, interpolated exactly the way the table names above are —
+# never user input. The two sources need DIFFERENT clauses: is_consolidated and
+# is_debit_note exist on Sales Invoice but NOT on Purchase Invoice (verified
+# against this bench), so one shared clause would fail with "Unknown column"
+# on every purchase query.
+_SALES_EXCLUSIONS = (
+	"AND p.is_return = 0 "
+	"AND p.is_consolidated = 0 "
+	"AND p.is_debit_note = 0 "
+	"AND c.rate > 0"
+)
+_PURCHASE_EXCLUSIONS = "AND p.is_return = 0 AND c.rate > 0"
+
+
+def _exclusions(parent):
+	"""Pick the clause from the PARENT TABLE, not from the caller's `source`.
+
+	_latest_rates is also called directly with ("Purchase Invoice Item",
+	"Purchase Invoice") to compute last_purchase_rate while source == "sales",
+	so keying off `source` would put Sales Invoice columns in a Purchase query.
+	"""
+	return _PURCHASE_EXCLUSIONS if parent == "Purchase Invoice" else _SALES_EXCLUSIONS
+
 
 def _tables(source):
 	return PURCHASE if source == "purchase" else SALES
@@ -83,10 +111,16 @@ def _latest_rates(child, parent, item_codes, party_field, party):
 			INNER JOIN `tab{parent}` p ON p.name = c.parent
 			WHERE c.item_code IN %(item_codes)s
 			  AND p.docstatus = 1
+			  {exclusions}
 			  {party_condition}
 		) ranked
 		WHERE rn = 1
-		""".format(child=child, parent=parent, party_condition=party_condition),
+		""".format(
+			child=child,
+			parent=parent,
+			party_condition=party_condition,
+			exclusions=_exclusions(parent),
+		),
 		values,
 		as_dict=True,
 	)
@@ -136,10 +170,14 @@ def get_item_insights(
 		INNER JOIN `tab{parent}` p ON p.name = c.parent
 		WHERE c.item_code = %(item_code)s
 		  AND p.docstatus = 1
+		  {exclusions}
 		  AND (%(party)s IS NULL OR p.{party_field} = %(party)s)
 		ORDER BY p.posting_date DESC, p.creation DESC
 		LIMIT %(limit)s
-		""".format(child=child, parent=parent, party_field=party_field),
+		""".format(
+			child=child, parent=parent, party_field=party_field,
+			exclusions=_exclusions(parent),
+		),
 		{"item_code": item_code, "party": customer or None, "limit": limit},
 		as_dict=True,
 	)
@@ -155,10 +193,14 @@ def get_item_insights(
 		INNER JOIN `tab{parent}` p ON p.name = c.parent
 		WHERE c.item_code = %(item_code)s
 		  AND p.docstatus = 1
+		  {exclusions}
 		  AND (%(party)s IS NULL OR p.{party_field} != %(party)s)
 		ORDER BY p.posting_date DESC, p.creation DESC
 		LIMIT %(limit)s
-		""".format(child=child, parent=parent, party_field=party_field),
+		""".format(
+			child=child, parent=parent, party_field=party_field,
+			exclusions=_exclusions(parent),
+		),
 		{"item_code": item_code, "party": customer or None, "limit": other_limit},
 		as_dict=True,
 	)
@@ -204,10 +246,14 @@ def get_item_price_history(item_code=None, source="sales", customer=None, limit=
 		INNER JOIN `tab{parent}` p ON p.name = c.parent
 		WHERE c.item_code = %(item_code)s
 		  AND p.docstatus = 1
+		  {exclusions}
 		  AND (%(party)s IS NULL OR p.{party_field} = %(party)s)
 		ORDER BY p.posting_date DESC, p.creation DESC
 		LIMIT %(limit)s
-		""".format(child=child, parent=parent, party_field=party_field),
+		""".format(
+			child=child, parent=parent, party_field=party_field,
+			exclusions=_exclusions(parent),
+		),
 		{"item_code": item_code, "party": customer or None, "limit": limit},
 		as_dict=True,
 	)

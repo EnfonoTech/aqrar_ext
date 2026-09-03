@@ -76,16 +76,37 @@ def resolve_cost_center(doc):
 	return default_cc if _usable(default_cc, company) else None
 
 
+def _return_parent_cost_center(doc, header_field):
+	"""Cost center of the document this return reverses, when it is usable.
+
+	A return MUST land on the same cost center as the document it reverses. The
+	previous code said so in a comment but the branch body was a bare `pass`, so
+	it fell straight through and stamped the CURRENT USER's branch instead: a
+	credit note raised by branch B against branch A's invoice credited branch B
+	while the original sale debited branch A, leaving both branches' P&L wrong
+	and nothing to flag it.
+
+	Returns None when there is no usable parent value, so the caller falls back
+	to normal resolution rather than leaving the rows blank.
+	"""
+	if not (doc.get("is_return") and doc.get("return_against")):
+		return None
+	if not header_field:
+		return None
+
+	parent_cc = frappe.db.get_value(doc.doctype, doc.get("return_against"), header_field)
+	return parent_cc if _usable(parent_cc, doc.get("company")) else None
+
+
 def apply_branch_cost_center(doc, method=None):
 	"""Stamp the resolved cost center on the header, the items and the taxes."""
 	if doc.doctype not in TARGETS:
 		return
-	if doc.get("is_return") and doc.get("return_against"):
-		# a return inherits its parent's allocation; leave it alone
-		pass
 
 	header_field, tables = TARGETS[doc.doctype]
-	cost_center = resolve_cost_center(doc)
+	# A return inherits the original document's allocation; everything else
+	# resolves from the user's branch.
+	cost_center = _return_parent_cost_center(doc, header_field) or resolve_cost_center(doc)
 	if not cost_center:
 		return
 
