@@ -7,7 +7,9 @@
  "engine": "InnoDB",
  "field_order": [
   "mode_of_payment",
-  "type"
+  "type",
+  "for_return",
+  "for_pdc"
  ],
  "fields": [
   {
@@ -26,6 +28,22 @@
    "in_list_view": 1,
    "label": "Type",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Offer this mode when refunding a return invoice.",
+   "fieldname": "for_return",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "For Return"
+  },
+  {
+   "default": "0",
+   "description": "Post-dated cheque mode. Shown only in the cheque popup and hidden from the ordinary payment popup.",
+   "fieldname": "for_pdc",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "For PDC"
   }
  ],
  "grid_page_length": 50,
