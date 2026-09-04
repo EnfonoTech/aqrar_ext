@@ -71,6 +71,26 @@ function aqrar_submit_and_print(frm) {
 }
 
 frappe.ui.form.on("Sales Invoice", {
+	refresh: function (frm) {
+		// Collect against an ALREADY SUBMITTED invoice. The popup otherwise only
+		// fires at submit time, so an invoice submitted on Credit (or any invoice
+		// left part-paid) had no way back to it -- the money had to be taken
+		// through a hand-built Payment Entry. Both dialogs already handle
+		// docstatus === 1; this is the button that reaches them.
+		if (frm.doc.docstatus !== 1) return;
+		if (Math.abs(flt(frm.doc.outstanding_amount)) <= 0) return;
+
+		frm
+			.add_custom_button(__("Receive Payment"), function () {
+				if (aqrar_is_cheque(frm)) {
+					aqrar_show_pdc_popup(frm);
+				} else {
+					aqrar_show_payment_popup(frm);
+				}
+			})
+			.addClass("btn-primary");
+	},
+
 	before_submit: function (frm) {
 		// Cheque -> post-dated cheque popup
 		if (aqrar_is_cheque(frm)) {
@@ -340,7 +360,10 @@ function aqrar_render_payment_dialog(frm, modes) {
 	const d = new frappe.ui.Dialog({
 		title: __("Enter Payment Amounts"),
 		fields: fields,
-		primary_action_label: __("Save & Submit"),
+		// On a submitted invoice nothing is saved or submitted -- the payments are
+		// created straight away -- so "Save & Submit" would be a lie.
+		primary_action_label:
+			frm.doc.docstatus === 1 ? __("Receive Payment") : __("Save & Submit"),
 		primary_action: function (vals) {
 			if (vals) apply_payments_and_close(vals, true);
 		},
@@ -598,7 +621,8 @@ function aqrar_show_pdc_popup(frm) {
 		const d = new frappe.ui.Dialog({
 			title: __("Cheque Payment"),
 			fields: fields,
-			primary_action_label: __("Save & Submit"),
+			primary_action_label:
+				frm.doc.docstatus === 1 ? __("Receive Payment") : __("Save & Submit"),
 			primary_action: function (vals) { if (vals) apply_and_close(vals, true); },
 			secondary_action_label: __("Save"),
 			secondary_action: function () {
