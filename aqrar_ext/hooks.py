@@ -9,24 +9,53 @@ app_license = "mit"
 # -----------
 # Loaded on every desk page. Anything that only applies to one DocType belongs
 # in `doctype_js` below so it is not parsed on unrelated screens.
+def _aqrar_asset_version():
+	"""Cache-busting token for app_include_js.
+
+	Frappe does NOT version plain asset paths: `include_script` -> `bundled_asset`
+	returns a path starting with "/assets" and without ".bundle." completely
+	untouched (frappe/utils/jinja_globals.py). So every one of these files is
+	served from a STABLE url and a browser will happily keep serving the copy it
+	cached before a deploy -- a shipped JS fix simply does not appear, with no
+	error anywhere to explain it.
+
+	Derive the token from the newest mtime under public/js so the url changes
+	whenever we ship JS. Read once per worker at import time.
+	"""
+	import os
+
+	js_dir = os.path.join(os.path.dirname(__file__), "public", "js")
+	try:
+		newest = max(
+			os.path.getmtime(os.path.join(js_dir, name))
+			for name in os.listdir(js_dir)
+			if name.endswith(".js")
+		)
+		return str(int(newest))
+	except (OSError, ValueError):
+		return "0"
+
+
+_ASSET_V = _aqrar_asset_version()
+
 app_include_js = [
-	"/assets/aqrar_ext/js/item_selector.js",
-	"/assets/aqrar_ext/js/item_selector_hook.js",
-	"/assets/aqrar_ext/js/item_uom_filter.js",
-	"/assets/aqrar_ext/js/sales_invoice_pos_total_popup.js",
-	"/assets/aqrar_ext/js/workflowapproval.js",
-	"/assets/aqrar_ext/js/sales_invoice_return.js",
-	"/assets/aqrar_ext/js/sales_invoice_branch_price_list.js",
-	"/assets/aqrar_ext/js/sales_invoice_nav.js",
-	"/assets/aqrar_ext/js/auto_print_preview.js",
-	"/assets/aqrar_ext/js/notification_sound.js",
-	"/assets/aqrar_ext/js/sales_invoice_book_commission.js",
-	"/assets/aqrar_ext/js/sales_invoice_payment_terms.js",
-	"/assets/aqrar_ext/js/customer_price_history.js",
-	"/assets/aqrar_ext/js/customer_statement.js",
-	"/assets/aqrar_ext/js/material_request_custom.js",
-	"/assets/aqrar_ext/js/purchase_receipt_final_grn.js",
-	"/assets/aqrar_ext/js/sales_order_payment.js",
+	f"/assets/aqrar_ext/js/item_selector.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/item_selector_hook.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/item_uom_filter.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/sales_invoice_pos_total_popup.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/workflowapproval.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/sales_invoice_return.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/sales_invoice_branch_price_list.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/sales_invoice_nav.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/auto_print_preview.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/notification_sound.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/sales_invoice_book_commission.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/sales_invoice_payment_terms.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/customer_price_history.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/customer_statement.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/material_request_custom.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/purchase_receipt_final_grn.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/sales_order_payment.js?v={_ASSET_V}",
 ]
 
 doctype_js = {
