@@ -1,24 +1,15 @@
 // Copyright (c) 2026, Aravind R and contributors
 // For license information, please see license.txt
 
-// Summary view: one row per type. Clicking a type opens DCR Detail with the
-// same filters, which lists the vouchers behind that figure. The link markup
-// is built server-side in dcr_report.py (get_report_link).
-frappe.query_reports["DCR Report"] = {
+// Drill-down for DCR Report. Normally reached by clicking a type in the
+// summary, which fills these filters from the URL.
+frappe.query_reports["DCR Detail"] = {
     "filters": [
         {
-            "fieldname": "date",
-            "label": "Date",
-            "fieldtype": "Date",
-            "default": frappe.datetime.get_today(),
-            "reqd": 0
-        },
-        {
-            "fieldname": "type",
+            "fieldname": "report_type",
             "label": "Type",
             "fieldtype": "Select",
             "options": [
-                "",
                 "Opening Cash Balance",
                 "Cash Sales",
                 "Card/Bank Sales",
@@ -44,7 +35,15 @@ frappe.query_reports["DCR Report"] = {
                 "Internal Transfer",
                 "Cash Balance"
             ].join("\n"),
-            "reqd": 0
+            "default": "Cash Sales",
+            "reqd": 1
+        },
+        {
+            "fieldname": "date",
+            "label": "Date",
+            "fieldtype": "Date",
+            "default": frappe.datetime.get_today(),
+            "reqd": 1
         },
         {
             "fieldname": "company",
@@ -66,15 +65,5 @@ frappe.query_reports["DCR Report"] = {
                 return {};
             }
         }
-    ],
-
-    "formatter": function(value, row, column, data, default_formatter) {
-        value = default_formatter(value, row, column, data);
-
-        if (data && data.bold) {
-            return `<strong style="font-weight:700;">${value}</strong>`;
-        }
-
-        return value;
-    }
+    ]
 };
