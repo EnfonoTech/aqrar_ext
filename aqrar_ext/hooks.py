@@ -57,7 +57,6 @@ app_include_js = [
 ]
 
 doctype_js = {
-	"Payment Entry": "public/js/payment_entry.js",
 	"Item": "public/js/item.js",
 	"Journal Entry": "public/js/journal_entry_commission.js",
 }
