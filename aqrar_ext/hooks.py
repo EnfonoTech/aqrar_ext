@@ -41,7 +41,6 @@ _ASSET_V = _aqrar_asset_version()
 app_include_js = [
 	f"/assets/aqrar_ext/js/item_selector.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/item_selector_hook.js?v={_ASSET_V}",
-	f"/assets/aqrar_ext/js/item_uom_filter.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_pos_total_popup.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/workflowapproval.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_return.js?v={_ASSET_V}",
