@@ -149,6 +149,27 @@ fixtures = [
 			]
 		],
 	},
+	# The roles the app defines and references itself. Standard ERPNext roles
+	# (Stock User, Stock Manager, Sales User, ...) are NOT shipped — they are
+	# ERPNext's to own.
+	{
+		"dt": "Role",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					# assigned by Branch Configuration, used by the Material
+					# Request workflow and the simplified invoice view
+					"Branch User",
+					# Material Request / Stock Entry approval transitions
+					"Branch Approver",
+					"Branch Accountant",
+					"Damage User",
+				],
+			]
+		],
+	},
 	"Workflow State",
 	"Workflow Action Master",
 	"Workflow",

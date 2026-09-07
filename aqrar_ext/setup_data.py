@@ -150,11 +150,18 @@ def before_migrate():
 
 	Seed those two masters from the fixture files themselves, so there is still
 	only one source of truth for them.
+
+	`role.json` has the same problem from the other direction: it sorts after
+	`custom_docperm.json`, whose rows link to `Branch User`, and after
+	`workflow.json`, whose transitions link to `Branch User` and
+	`Branch Approver`. Seeding the names here lets those links bind; the fixture
+	import that follows fills in each role's actual settings.
 	"""
 	_seed_from_fixture("workflow_state.json", "Workflow State", "workflow_state_name")
 	_seed_from_fixture(
 		"workflow_action_master.json", "Workflow Action Master", "workflow_action_name"
 	)
+	_seed_from_fixture("role.json", "Role", "role_name")
 
 
 def _seed_from_fixture(filename, doctype, title_field):
