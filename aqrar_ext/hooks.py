@@ -45,7 +45,6 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/workflowapproval.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_return.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_branch_price_list.js?v={_ASSET_V}",
-	f"/assets/aqrar_ext/js/sales_invoice_nav.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/auto_print_preview.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/notification_sound.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_book_commission.js?v={_ASSET_V}",
