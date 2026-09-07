@@ -106,9 +106,9 @@ def enforce_stock_out(doc):
 	``before_save`` is skipped on the submit path, which would let a draft
 	saved before this rule existed slip through.
 
-	Registered after ``CustomSalesInvoice.validate`` (doc_events hooks run once
-	the controller method returns), so ``update_stock`` here is the final value
-	— including the CR-028 case where it was just forced off for a Branch User.
+	The rule is the same for every role. Branch Users used to have Update Stock
+	forced back off for them (CR-028), which meant they could never satisfy this
+	and had to route everything through a Delivery Note; that carve-out is gone.
 	"""
 	if doc.get("is_return"):
 		# A credit note reverses an earlier movement; it does not take stock out.
@@ -135,31 +135,9 @@ def enforce_stock_out(doc):
 	frappe.throw(
 		_("This invoice takes no stock out, but these rows are stock items:")
 		+ f"<ul>{lines}</ul>"
-		+ stock_out_remedy(),
+		+ _("Either tick Update Stock on this invoice, or create it from a Delivery Note."),
 		title=_("Stock Not Issued"),
 	)
-
-
-def stock_out_remedy():
-	"""The fix to offer, which depends on whether the user may tick Update Stock.
-
-	CR-028 turns Update Stock back off for restricted roles, so telling those
-	users to tick it would send them in a circle.
-	"""
-	from aqrar_ext.overrides.sales_invoice import (
-		UPDATE_STOCK_PRIVILEGED_ROLES,
-		UPDATE_STOCK_RESTRICTED_ROLES,
-	)
-
-	if frappe.session.user != "Administrator":
-		roles = set(frappe.get_roles(frappe.session.user))
-		if roles & UPDATE_STOCK_RESTRICTED_ROLES and not (roles & UPDATE_STOCK_PRIVILEGED_ROLES):
-			return _(
-				"Create this invoice from a Delivery Note — your role issues stock "
-				"through a Delivery Note, not directly from the invoice."
-			)
-
-	return _("Either tick Update Stock on this invoice, or create it from a Delivery Note.")
 
 
 def get_partial_payment_amount(doc):
@@ -175,7 +153,6 @@ __all__ = [
 	"enforce_stock_out",
 	"get_default_item_display_mode",
 	"get_partial_payment_amount",
-	"stock_out_remedy",
 	"validate",
 	"validate_price_floor",
 ]

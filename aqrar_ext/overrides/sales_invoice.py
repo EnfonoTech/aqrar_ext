@@ -7,7 +7,6 @@ Hook-style handlers (payment terms, print display, price floor) live in
 
 import frappe
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
-from frappe import _
 from frappe.utils import flt
 
 from aqrar_ext.aqrar_ext.utils.return_rates import (
@@ -20,20 +19,9 @@ from aqrar_ext.aqrar_ext.utils.return_rates import (
 # Sales Invoice controller, so it is always in place before validate runs.
 install_uom_aware_return_guard()
 
-# CR-028 — "2-in / 2-out" model: shop-floor users must move stock through a
-# Delivery Note, never straight off the invoice.
-UPDATE_STOCK_PRIVILEGED_ROLES = {
-	"System Manager",
-	"Accounts Manager",
-	"Stock Manager",
-	"Branch Manager",
-}
-UPDATE_STOCK_RESTRICTED_ROLES = {"Branch User"}
-
 
 class CustomSalesInvoice(SalesInvoice):
 	def validate(self):
-		self.enforce_update_stock_policy()
 		# Before super(): calculate_taxes_and_totals runs inside it, so the rate
 		# has to be right by then or every total is built on the wrong figure.
 		sync_return_item_rates(self)
@@ -63,31 +51,6 @@ class CustomSalesInvoice(SalesInvoice):
 			super().validate_update_after_submit()
 		finally:
 			self.selling_price_list = current_price_list
-
-	def enforce_update_stock_policy(self):
-		"""CR-028: Branch Users may not take stock out through the invoice."""
-		if not self.meta.has_field("update_stock") or not self.get("update_stock"):
-			return
-
-		user = frappe.session.user
-		if user == "Administrator":
-			return
-
-		roles = set(frappe.get_roles(user))
-		if roles & UPDATE_STOCK_PRIVILEGED_ROLES:
-			return
-		if not (roles & UPDATE_STOCK_RESTRICTED_ROLES):
-			return
-
-		self.update_stock = 0
-		frappe.msgprint(
-			_(
-				"Update Stock was turned off: your role issues stock through a "
-				"Delivery Note, not directly from the Sales Invoice."
-			),
-			alert=True,
-			indicator="orange",
-		)
 
 	def fix_return_stock_qty(self):
 		"""Keep the stock quantity of a credit note negative (CR-014).
