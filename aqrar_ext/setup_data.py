@@ -11,6 +11,38 @@ import frappe
 from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
+# Actual rate + discount-on-amount, ported from fateh_trading. Identical on every
+# transaction item table, so they are generated rather than written out 14 times.
+# `custom_weighted_discount` / `custom_item_discount` are absent on purpose: the
+# weighted-discount feature was not ported.
+_RATE_TRACKING_FIELDS = [
+	{
+		"fieldname": "custom_actual_rate",
+		"label": "Actual Rate",
+		"fieldtype": "Currency",
+		"options": "currency",
+		"insert_after": "rate",
+		"read_only": 1,
+	},
+	{
+		"fieldname": "custom_discount_on_amount",
+		"label": "Discount on Amount",
+		"fieldtype": "Currency",
+		"options": "currency",
+		"insert_after": "custom_actual_rate",
+	},
+]
+
+_RATE_TRACKING_DOCTYPES = (
+	"Sales Invoice Item",
+	"Delivery Note Item",
+	"Sales Order Item",
+	"Quotation Item",
+	"Purchase Invoice Item",
+	"Purchase Order Item",
+	"Purchase Receipt Item",
+)
+
 # Fields the app's own code reads. They were previously listed in the fixtures
 # filter in hooks.py but never exported, so a fresh install raised
 # "Unknown column" the first time the feature was used.
@@ -217,6 +249,14 @@ def check_expected_modes_of_payment():
 			"The Sales Invoice payment popup only offers modes that have a "
 			"default account for the company.".format(", ".join(missing))
 		)
+
+
+# Merge the generated rate-tracking fields in, without disturbing the literal
+# entries above.
+for _dt in _RATE_TRACKING_DOCTYPES:
+	CUSTOM_FIELDS.setdefault(_dt, []).extend(
+		dict(field) for field in _RATE_TRACKING_FIELDS
+	)
 
 
 def ensure_custom_fields():
