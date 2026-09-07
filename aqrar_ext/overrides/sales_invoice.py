@@ -10,6 +10,16 @@ from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
 from frappe import _
 from frappe.utils import flt
 
+from aqrar_ext.aqrar_ext.utils.return_rates import (
+	install_uom_aware_return_guard,
+	sync_return_item_rates,
+)
+
+# A credit note rate must follow the invoice it reverses even when the row's UOM
+# is changed. Installed here because frappe imports this module to build the
+# Sales Invoice controller, so it is always in place before validate runs.
+install_uom_aware_return_guard()
+
 # CR-028 — "2-in / 2-out" model: shop-floor users must move stock through a
 # Delivery Note, never straight off the invoice.
 UPDATE_STOCK_PRIVILEGED_ROLES = {
@@ -24,6 +34,9 @@ UPDATE_STOCK_RESTRICTED_ROLES = {"Branch User"}
 class CustomSalesInvoice(SalesInvoice):
 	def validate(self):
 		self.enforce_update_stock_policy()
+		# Before super(): calculate_taxes_and_totals runs inside it, so the rate
+		# has to be right by then or every total is built on the wrong figure.
+		sync_return_item_rates(self)
 		super().validate()
 		if self.is_return:
 			self.fix_return_stock_qty()
