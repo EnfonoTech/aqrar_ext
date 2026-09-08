@@ -49,6 +49,24 @@ _RATE_TRACKING_DOCTYPES = (
 CUSTOM_FIELDS = {
 	"Sales Invoice": [
 		{
+			# Data entry: one Link instead of opening the Sales Team table and
+			# typing a 100% allocation. utils/sales_team.py mirrors it into that
+			# table, which is what every native sales-person report reads.
+			# Not mandatory, unlike sf_trading's — there are submitted invoices
+			# here that predate the field.
+			"fieldname": "custom_sales_person",
+			"label": "Sales Person",
+			"fieldtype": "Link",
+			"options": "Sales Person",
+			"insert_after": "naming_series",
+			# Without this, a User Permission on Sales Person would filter the
+			# whole Sales Invoice list down to that person's invoices the moment
+			# this link field exists. It also switches off Frappe's own default
+			# for the field, which is why utils/sales_team.default_sales_person
+			# exists.
+			"ignore_user_permissions": 1,
+		},
+		{
 			"fieldname": "custom_payment_mode",
 			"label": "Payment Mode",
 			"fieldtype": "Select",
@@ -63,6 +81,18 @@ CUSTOM_FIELDS = {
 			"insert_after": "custom_payment_mode",
 			"depends_on": "eval:doc.custom_payment_mode=='Credit'",
 			"description": "Amount collected up front from a credit customer (CR-007).",
+		},
+	],
+	"Sales Order": [
+		{
+			# Same field and same mirror as Sales Invoice — the order carries a
+			# sales_team table too, and the native reports read it there as well.
+			"fieldname": "custom_sales_person",
+			"label": "Sales Person",
+			"fieldtype": "Link",
+			"options": "Sales Person",
+			"insert_after": "naming_series",
+			"ignore_user_permissions": 1,
 		},
 	],
 	"Item": [
@@ -281,6 +311,7 @@ def _seed_from_fixture(filename, doctype, title_field):
 def create():
 	"""Entry point for hooks.after_migrate."""
 	ensure_custom_fields()
+	enforce_sales_person_permission_flag()
 	ensure_temporary_item_naming_series()
 	check_expected_modes_of_payment()
 	install_expense_claim_workflow()
@@ -319,6 +350,29 @@ for _dt in _RATE_TRACKING_DOCTYPES:
 	CUSTOM_FIELDS.setdefault(_dt, []).extend(
 		dict(field) for field in _RATE_TRACKING_FIELDS
 	)
+
+
+def enforce_sales_person_permission_flag():
+	"""Force `ignore_user_permissions` on the two custom_sales_person fields.
+
+	`ensure_custom_fields` deliberately passes update=False so it never rewrites a
+	field an implementer has tuned. That is right for labels and placement, and
+	wrong here: without this flag a single User Permission on Sales Person filters
+	the WHOLE Sales Invoice / Sales Order list down to that person's documents,
+	which is a silent, site-wide loss of visibility rather than a preference. The
+	field was shipped before the flag was, so sites that already have it keep the
+	old value unless something corrects it.
+
+	Narrow on purpose: two named fields, one boolean, only when it is off.
+	"""
+	for doctype in ("Sales Invoice", "Sales Order"):
+		name = "{0}-custom_sales_person".format(doctype)
+		if not frappe.db.exists("Custom Field", name):
+			continue
+		if frappe.db.get_value("Custom Field", name, "ignore_user_permissions"):
+			continue
+		frappe.db.set_value("Custom Field", name, "ignore_user_permissions", 1)
+		frappe.clear_cache(doctype=doctype)
 
 
 def ensure_custom_fields():

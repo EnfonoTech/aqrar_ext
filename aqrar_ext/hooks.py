@@ -52,6 +52,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/customer_price_history.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/price_assist.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/item_rate_tracking.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/sales_person_default.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/customer_statement.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/material_request_custom.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/purchase_receipt_final_grn.js?v={_ASSET_V}",
@@ -86,7 +87,10 @@ _COST_CENTER_HOOK = "aqrar_ext.aqrar_ext.utils.cost_center.apply_branch_cost_cen
 doc_events = {
 	"Purchase Invoice": {"validate": _COST_CENTER_HOOK},
 	"Delivery Note": {"validate": _COST_CENTER_HOOK},
-	"Sales Order": {"validate": _COST_CENTER_HOOK},
+	"Sales Order": {
+		"before_validate": "aqrar_ext.aqrar_ext.utils.sales_team.set_sales_team",
+		"validate": _COST_CENTER_HOOK,
+	},
 	# Quotation's cost_center is provisioned by setup_data, not shipped by
 	# ERPNext, so nothing populates the header without this. ERPNext fills the
 	# item rows from Item/Company defaults but knows nothing about the header.
@@ -95,6 +99,10 @@ doc_events = {
 	"Stock Entry": {"validate": _COST_CENTER_HOOK},
 	"Payment Entry": {"validate": _COST_CENTER_HOOK},
 	"Sales Invoice": {
+		# before_validate, not validate: ERPNext computes allocated_amount inside
+		# calculate_taxes_and_totals during validate, so a Sales Team row appended
+		# after that would carry a zero amount until the next save.
+		"before_validate": "aqrar_ext.aqrar_ext.utils.sales_team.set_sales_team",
 		"validate": [
 			"aqrar_ext.aqrar_ext.overrides.sales_invoice.validate",
 			_COST_CENTER_HOOK,
@@ -133,6 +141,9 @@ fixtures = [
 					"Item Price-custom_minimum_selling_rate",
 					"Price List-custom_branch",
 					"Sales Invoice-custom_override_minimum_price",
+					# header salesman, mirrored into the Sales Team table
+					"Sales Invoice-custom_sales_person",
+					"Sales Order-custom_sales_person",
 					# CR-021: sound alert toggle
 					"User-custom_enable_sound_alerts",
 					# CR-013 / CR-029: Material Request tracking
