@@ -169,6 +169,26 @@ for (const [doctype, config] of Object.entries(DOCTYPE_CONFIG)) {
     setup_doctype_handlers(doctype, config);
 }
 
+// Cost for this row = the valuation rate of the warehouse the row is actually
+// drawing from, not a company-wide blend. Falls back to the blended figure and
+// then to the item's last purchase rate, so the tile is never blank when any of
+// them is known. Both backend figures are still returned — nothing was removed.
+function row_cost(row, insights) {
+    const stock = insights.stock || [];
+    const wh = row.warehouse || row.s_warehouse || null;
+
+    if (wh) {
+        const hit = stock.find(s => s.warehouse === wh);
+        if (hit && flt(hit.valuation_rate)) {
+            return { value: flt(hit.valuation_rate), label: "Cost @ " + wh, scoped: true };
+        }
+    }
+    if (flt(insights.valuation_rate)) {
+        return { value: flt(insights.valuation_rate), label: "Cost (all whs)", scoped: false };
+    }
+    return { value: flt(insights.last_purchase_rate), label: "Last Purchase", scoped: false };
+}
+
 $.extend(aqrar_ext.price_assist, {
     show(frm, row, config) {
         this.hide(row);
@@ -201,6 +221,7 @@ $.extend(aqrar_ext.price_assist, {
 
         const last_purchase_rate = flt(insights.last_purchase_rate || 0);
         const last_rate = flt(insights.last_rate || 0);
+        const cost = row_cost(row, insights);
 
         const id = `si-price-assist-${row.name}`;
         const $box = $(`<div class="si-price-assist" id="${id}"></div>`).appendTo("body");
@@ -227,7 +248,7 @@ $.extend(aqrar_ext.price_assist, {
                 <div class="pa-summary-main">
                     <div><label>Last</label><span>${last_rate || "-"}</span></div>
                     <div><label>Last Purchase</label><span>${last_purchase_rate ? last_purchase_rate.toFixed(2) : "-"}</span></div>
-                    <div><label>Current</label><span>${current_rate || "-"}</span></div>
+                    <div><label>${cost.label}</label><span>${cost.value ? cost.value.toFixed(2) : "-"}</span></div>
                 </div>
                 <div class="pa-summary-warning">${diff_text}</div>
             </div>
@@ -275,7 +296,7 @@ $.extend(aqrar_ext.price_assist, {
                     <div class="ps-line">
                         <div class="ps-left">
                             <b>${s.warehouse}</b>
-                            <small>${s.actual_qty} available</small>
+                            <small>${s.actual_qty} available${flt(s.valuation_rate) ? " @ " + flt(s.valuation_rate).toFixed(2) : ""}</small>
                         </div>
                         <div class="ps-bar-wrap">
                             <div class="ps-bar" style="width:${fill}%"></div>
@@ -346,6 +367,7 @@ $.extend(aqrar_ext.price_assist, {
         const last_purchase_rate = flt(insights.last_purchase_rate || 0);
         const last_rate = flt(insights.last_rate || 0);
         const valuation_rate = flt(insights.valuation_rate || 0);
+        const cost = row_cost(row, insights);
         const id = `pi-price-assist-${row.name}`;
         const $box = $(`<div class="si-price-assist" id="${id}"></div>`).appendTo("body");
         const supplier = frm.doc[config.party_field || "supplier"];
@@ -367,7 +389,7 @@ $.extend(aqrar_ext.price_assist, {
                 <div class="pa-summary-main">
                     <div><label>Last (Supplier)</label><span>${last_rate || "-"}</span></div>
                     <div><label>Valuation Rate</label><span>${valuation_rate ? valuation_rate.toFixed(2) : "-"}</span></div>
-                    <div><label>Current</label><span>${current_rate || "-"}</span></div>
+                    <div><label>${cost.label}</label><span>${cost.value ? cost.value.toFixed(2) : "-"}</span></div>
                 </div>
                 <div class="pa-summary-warning">${diff_text}</div>
             </div>
@@ -415,7 +437,7 @@ $.extend(aqrar_ext.price_assist, {
                     <div class="ps-line">
                         <div class="ps-left">
                             <b>${s.warehouse}</b>
-                            <small>${s.actual_qty} available</small>
+                            <small>${s.actual_qty} available${flt(s.valuation_rate) ? " @ " + flt(s.valuation_rate).toFixed(2) : ""}</small>
                         </div>
                         <div class="ps-bar-wrap">
                             <div class="ps-bar" style="width:${fill}%"></div>

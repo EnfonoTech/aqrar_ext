@@ -58,11 +58,17 @@ def get_item_warehouse_stock(item_code, company=None, limit=8):
 
 	_check_read("Item")
 
+	# valuation_rate per warehouse, derived from stock_value rather than read from
+	# Bin.valuation_rate: the two agree for a single Bin row but the derived form
+	# stays correct under the GROUP BY, and it is the same expression the
+	# company-wide `_valuation_rate` uses.
 	query = """
 		SELECT
 			b.warehouse,
 			SUM(b.actual_qty) AS actual_qty,
-			SUM(b.projected_qty) AS projected_qty
+			SUM(b.projected_qty) AS projected_qty,
+			SUM(b.stock_value) AS stock_value,
+			SUM(b.stock_value) / NULLIF(SUM(b.actual_qty), 0) AS valuation_rate
 		FROM `tabBin` b
 		INNER JOIN `tabWarehouse` w ON b.warehouse = w.name
 		WHERE b.item_code = %s
@@ -85,6 +91,8 @@ def get_item_warehouse_stock(item_code, company=None, limit=8):
 	for row in data:
 		row["actual_qty"] = flt(row.get("actual_qty") or 0)
 		row["projected_qty"] = flt(row.get("projected_qty") or 0)
+		row["stock_value"] = flt(row.get("stock_value") or 0)
+		row["valuation_rate"] = flt(row.get("valuation_rate") or 0)
 
 	return data
 
