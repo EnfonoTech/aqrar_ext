@@ -108,6 +108,68 @@ CUSTOM_FIELDS = {
 			"print_hide": 1,
 		},
 	],
+	# ERPNext leaves accounting dimensions off Quotation entirely — no section, no
+	# cost_center, no project — because a quotation posts nothing to the GL. The
+	# branch model needs them anyway: without a cost center on the document the
+	# Price Assist history dialogs have no branch to scope to, so they fall back
+	# to showing every branch. Field names and layout mirror Sales Order exactly,
+	# which is also what the accounting_dimension_doctypes hook expects: it
+	# inserts new dimensions after `accounting_dimensions_section` /
+	# `dimension_col_break`.
+	"Quotation": [
+		{
+			"fieldname": "accounting_dimensions_section",
+			"label": "Accounting Dimensions",
+			"fieldtype": "Section Break",
+			"insert_after": "amended_from",
+		},
+		{
+			"fieldname": "cost_center",
+			"label": "Cost Center",
+			"fieldtype": "Link",
+			"options": "Cost Center",
+			"insert_after": "accounting_dimensions_section",
+		},
+		{
+			"fieldname": "dimension_col_break",
+			"fieldtype": "Column Break",
+			"insert_after": "cost_center",
+		},
+		{
+			"fieldname": "project",
+			"label": "Project",
+			"fieldtype": "Link",
+			"options": "Project",
+			"insert_after": "dimension_col_break",
+		},
+	],
+	"Quotation Item": [
+		{
+			"fieldname": "accounting_dimensions_section",
+			"label": "Accounting Dimensions",
+			"fieldtype": "Section Break",
+			"insert_after": "item_tax_rate",
+		},
+		{
+			"fieldname": "cost_center",
+			"label": "Cost Center",
+			"fieldtype": "Link",
+			"options": "Cost Center",
+			"insert_after": "accounting_dimensions_section",
+		},
+		{
+			"fieldname": "dimension_col_break",
+			"fieldtype": "Column Break",
+			"insert_after": "cost_center",
+		},
+		{
+			"fieldname": "project",
+			"label": "Project",
+			"fieldtype": "Link",
+			"options": "Project",
+			"insert_after": "dimension_col_break",
+		},
+	],
 	"Item Group": [
 		{
 			"fieldname": "custom_default_item_naming_series",

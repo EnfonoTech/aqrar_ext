@@ -87,6 +87,10 @@ doc_events = {
 	"Purchase Invoice": {"validate": _COST_CENTER_HOOK},
 	"Delivery Note": {"validate": _COST_CENTER_HOOK},
 	"Sales Order": {"validate": _COST_CENTER_HOOK},
+	# Quotation's cost_center is provisioned by setup_data, not shipped by
+	# ERPNext, so nothing populates the header without this. ERPNext fills the
+	# item rows from Item/Company defaults but knows nothing about the header.
+	"Quotation": {"validate": _COST_CENTER_HOOK},
 	"Purchase Order": {"validate": _COST_CENTER_HOOK},
 	"Stock Entry": {"validate": _COST_CENTER_HOOK},
 	"Payment Entry": {"validate": _COST_CENTER_HOOK},
@@ -160,6 +164,15 @@ fixtures = [
 					"Purchase Order Item-custom_discount_on_amount",
 					"Purchase Receipt Item-custom_actual_rate",
 					"Purchase Receipt Item-custom_discount_on_amount",
+					# Accounting dimensions on Quotation, which ERPNext omits
+					"Quotation-accounting_dimensions_section",
+					"Quotation-cost_center",
+					"Quotation-dimension_col_break",
+					"Quotation-project",
+					"Quotation Item-accounting_dimensions_section",
+					"Quotation Item-cost_center",
+					"Quotation Item-dimension_col_break",
+					"Quotation Item-project",
 				],
 			]
 		],
@@ -193,6 +206,16 @@ fixtures = [
 	# every app ships its own desk Workspace, otherwise the module is invisible
 	{"dt": "Workspace", "filters": [["module", "=", "Aqrar Ext"]]},
 ]
+
+# Extend ERPNext's accounting-dimension propagation to Quotation. The list is a
+# hook, so ours merges with ERPNext's rather than replacing it. Any Accounting
+# Dimension created from now on gets its custom field on Quotation and Quotation
+# Item too, landing in the section provisioned by setup_data.
+accounting_dimension_doctypes = [
+	"Quotation",
+	"Quotation Item",
+]
+
 
 # Runs before schema sync + fixture import: seeds the Workflow States and
 # Action Masters that fixtures/workflow.json links to (fixtures are imported in

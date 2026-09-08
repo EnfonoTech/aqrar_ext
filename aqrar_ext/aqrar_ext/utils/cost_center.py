@@ -20,6 +20,7 @@ TARGETS = {
 	"Delivery Note": ("cost_center", ["items", "taxes"]),
 	"Purchase Receipt": ("cost_center", ["items", "taxes"]),
 	"Sales Order": ("cost_center", ["items", "taxes"]),
+	"Quotation": ("cost_center", ["items", "taxes"]),
 	"Purchase Order": ("cost_center", ["items", "taxes"]),
 	"Stock Entry": (None, ["items"]),
 	"Payment Entry": ("cost_center", []),
