@@ -29,17 +29,38 @@ Both halves of the fix live here:
 import frappe
 from frappe.utils import flt
 
-REFERENCE_FIELD = "sales_invoice_item"
+# doctype -> (field on the return row holding the original row's name, that row's
+# doctype). Taken from validate_returned_items, which is the authority: it builds
+# the same map as `frappe.scrub(doctype) + "_item"` for four of them and special-
+# cases Delivery Note to `dn_detail`.
+RETURN_REFERENCE = {
+	"Sales Invoice": ("sales_invoice_item", "Sales Invoice Item"),
+	"Delivery Note": ("dn_detail", "Delivery Note Item"),
+	"Purchase Invoice": ("purchase_invoice_item", "Purchase Invoice Item"),
+	"Purchase Receipt": ("purchase_receipt_item", "Purchase Receipt Item"),
+	"POS Invoice": ("pos_invoice_item", "POS Invoice Item"),
+}
+
+# ERPNext's over-crediting guard compares raw rates for these two only — see the
+# `doc.doctype in ("Delivery Note", "Sales Invoice")` condition in
+# validate_returned_items. A purchase return never reaches it, so there is
+# nothing to make UOM-aware there.
+RATE_GUARD_DOCTYPES = ("Sales Invoice", "Delivery Note")
 
 
-def reference_row(row):
-	"""The invoiced row this return row reverses, if it points at one."""
-	ref_name = row.get(REFERENCE_FIELD)
+def reference_row(row, doctype):
+	"""The original row this return row reverses, if it points at one."""
+	mapping = RETURN_REFERENCE.get(doctype)
+	if not mapping:
+		return None
+
+	reference_field, reference_doctype = mapping
+	ref_name = row.get(reference_field)
 	if not ref_name:
 		return None
 
 	return frappe.db.get_value(
-		"Sales Invoice Item",
+		reference_doctype,
 		ref_name,
 		["rate", "price_list_rate", "conversion_factor", "uom"],
 		as_dict=True,
@@ -62,9 +83,11 @@ def sync_return_item_rates(doc):
 	"""
 	if not doc.get("is_return") or not doc.get("return_against"):
 		return
+	if doc.doctype not in RETURN_REFERENCE:
+		return
 
 	for row in doc.get("items") or []:
-		ref = reference_row(row)
+		ref = reference_row(row, doc.doctype)
 		if not ref or not ref.conversion_factor:
 			continue
 
@@ -104,12 +127,12 @@ def uom_aware_validate_returned_items(doc):
 	Real over-crediting is still caught: the comparison is only normalised for
 	the conversion factor, so a genuinely higher per-unit rate still throws.
 	"""
-	if doc.doctype != "Sales Invoice" or not doc.get("is_return"):
+	if doc.doctype not in RATE_GUARD_DOCTYPES or not doc.get("is_return"):
 		return _core_validate_returned_items(doc)
 
 	restore = []
 	for row in doc.get("items") or []:
-		ref = reference_row(row)
+		ref = reference_row(row, doc.doctype)
 		if not ref or not ref.conversion_factor:
 			continue
 
@@ -144,6 +167,24 @@ def install_uom_aware_return_guard():
 
 	_core_validate_returned_items = core.validate_returned_items
 	core.validate_returned_items = uom_aware_validate_returned_items
+
+
+def apply_uom_aware_returns(doc, method=None):
+	"""before_validate entry point for every doctype that can be returned.
+
+	`before_validate` and not `validate`: ERPNext computes the totals inside
+	calculate_taxes_and_totals during validate, so the rate has to be right
+	before that or every total is built on the wrong figure.
+
+	The guard is installed from here rather than at module import. It used to be
+	installed when the Sales Invoice controller module was imported, which is
+	fine for Sales Invoice and useless for Delivery Note: a worker that never
+	touched a Sales Invoice would run a Delivery Note return against the raw core
+	check and reject a correctly scaled rate. Installing here ties it to the
+	event that needs it, for all five doctypes, and it is idempotent.
+	"""
+	install_uom_aware_return_guard()
+	sync_return_item_rates(doc)
 
 
 @frappe.whitelist()

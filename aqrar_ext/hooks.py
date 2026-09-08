@@ -83,10 +83,19 @@ override_doctype_class = {
 # Registered on `validate` so it runs AFTER ERPNext has applied its own
 # Item/Company defaults — otherwise core overwrites us.
 _COST_CENTER_HOOK = "aqrar_ext.aqrar_ext.utils.cost_center.apply_branch_cost_center"
+# A return's rate must follow the document it reverses even when the row's UOM
+# changes. Every doctype ERPNext lets you return needs it, not just Sales Invoice.
+_RETURN_UOM_HOOK = "aqrar_ext.aqrar_ext.utils.return_rates.apply_uom_aware_returns"
 
 doc_events = {
-	"Purchase Invoice": {"validate": _COST_CENTER_HOOK},
-	"Delivery Note": {"validate": _COST_CENTER_HOOK},
+	"Purchase Invoice": {
+		"before_validate": _RETURN_UOM_HOOK,
+		"validate": _COST_CENTER_HOOK,
+	},
+	"Delivery Note": {
+		"before_validate": _RETURN_UOM_HOOK,
+		"validate": _COST_CENTER_HOOK,
+	},
 	"Sales Order": {
 		"before_validate": "aqrar_ext.aqrar_ext.utils.sales_team.set_sales_team",
 		"validate": _COST_CENTER_HOOK,
@@ -102,7 +111,10 @@ doc_events = {
 		# before_validate, not validate: ERPNext computes allocated_amount inside
 		# calculate_taxes_and_totals during validate, so a Sales Team row appended
 		# after that would carry a zero amount until the next save.
-		"before_validate": "aqrar_ext.aqrar_ext.utils.sales_team.set_sales_team",
+		"before_validate": [
+			"aqrar_ext.aqrar_ext.utils.sales_team.set_sales_team",
+			_RETURN_UOM_HOOK,
+		],
 		"validate": [
 			"aqrar_ext.aqrar_ext.overrides.sales_invoice.validate",
 			_COST_CENTER_HOOK,
@@ -110,10 +122,12 @@ doc_events = {
 		"before_save": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_save",
 		"before_print": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_print",
 	},
+	"POS Invoice": {"before_validate": _RETURN_UOM_HOOK},
 	"Material Request": {
 		"validate": "aqrar_ext.events.material_request.validate_branch_user",
 	},
 	"Purchase Receipt": {
+		"before_validate": _RETURN_UOM_HOOK,
 		"validate": _COST_CENTER_HOOK,
 		"before_cancel": "aqrar_ext.events.purchase_receipt.block_cancel_if_consumed",
 	},

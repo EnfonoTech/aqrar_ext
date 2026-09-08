@@ -9,22 +9,11 @@ import frappe
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
 from frappe.utils import flt
 
-from aqrar_ext.aqrar_ext.utils.return_rates import (
-	install_uom_aware_return_guard,
-	sync_return_item_rates,
-)
-
-# A credit note rate must follow the invoice it reverses even when the row's UOM
-# is changed. Installed here because frappe imports this module to build the
-# Sales Invoice controller, so it is always in place before validate runs.
-install_uom_aware_return_guard()
-
 
 class CustomSalesInvoice(SalesInvoice):
 	def validate(self):
-		# Before super(): calculate_taxes_and_totals runs inside it, so the rate
-		# has to be right by then or every total is built on the wrong figure.
-		sync_return_item_rates(self)
+		# UOM-aware return rates are applied on before_validate, for every
+		# returnable doctype — see utils/return_rates.apply_uom_aware_returns.
 		super().validate()
 		if self.is_return:
 			self.fix_return_stock_qty()
