@@ -141,11 +141,20 @@ frappe.ui.form.on("Sales Invoice", {
 					});
 				},
 				function () {
-					/* No: the invoice is saved, nothing more to do */
+					// No: the invoice stays a draft, but the customer still needs
+					// the printout — a credit sale is handed over before it is
+					// submitted. Yes prints too, via aqrar_submit_and_print.
+					aqrar_open_invoice_print(frm);
 				}
 			);
 			if (d) {
+				// frappe.confirm implements its reject_action THROUGH d.onhide
+				// (frappe/ui/messages.js): assigning onhide here would silently
+				// discard the No callback, which is why No never printed. Chain
+				// onto it instead of replacing it.
+				const on_reject = d.onhide;
 				d.onhide = function () {
+					if (on_reject) on_reject();
 					delete frappe.flags.aqrar_credit_confirm_open;
 				};
 			}
@@ -381,6 +390,12 @@ function aqrar_render_payment_dialog(frm, modes, is_cash_customer) {
 							5
 						);
 					}
+					if (!submit) {
+						// The submit branch prints for itself, before finalising.
+						// This is the popup's Save on a submitted invoice: no form
+						// save happens, so after_save never fires.
+						aqrar_open_invoice_print(frm);
+					}
 					frm.reload_doc();
 				},
 			});
@@ -431,6 +446,7 @@ function aqrar_render_payment_dialog(frm, modes, is_cash_customer) {
 					{ message: __("Invoice saved. Submit the invoice when ready to add payments."), indicator: "blue" },
 					4
 				);
+				aqrar_open_invoice_print(frm);
 				frm.reload_doc();
 				return;
 			}
