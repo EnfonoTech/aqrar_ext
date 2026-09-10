@@ -188,7 +188,21 @@ function aqrar_show_payment_popup(frm) {
 				);
 				return;
 			}
-			aqrar_render_payment_dialog(frm, modes);
+			// Resolved before the dialog is built so the shortfall rule is known
+			// synchronously while the user is typing.
+			frappe.call({
+				method: "aqrar_ext.aqrar_ext.utils.cash_customer.get_is_cash_customer",
+				args: { customer: frm.doc.customer || "" },
+				callback: function (c) {
+					const is_cash_customer = !!(c && c.message && c.message.is_cash_customer);
+					aqrar_render_payment_dialog(frm, modes, is_cash_customer);
+				},
+				error: function () {
+					// Unknown means treat them as a cash customer: refusing a short
+					// tender is the safe way to be wrong.
+					aqrar_render_payment_dialog(frm, modes, true);
+				},
+			});
 		},
 		error: function () {
 			frappe.flags.aqrar_popup_showing = false;
@@ -197,7 +211,7 @@ function aqrar_show_payment_popup(frm) {
 	});
 }
 
-function aqrar_render_payment_dialog(frm, modes) {
+function aqrar_render_payment_dialog(frm, modes, is_cash_customer) {
 	const currency = frm.doc.currency || "";
 	const precision = aqrar_currency_precision(currency);
 	const invoice_total = aqrar_amount_to_pay(frm, precision);
@@ -221,6 +235,22 @@ function aqrar_render_payment_dialog(frm, modes) {
 		{ fieldtype: "Section Break", label: __("Enter Payment Amounts") },
 	];
 
+	// Recomputed on every keystroke so the shortfall is visible while typing
+	// rather than only when the dialog is submitted.
+	function refresh_remaining() {
+		let paid = 0;
+		modes.forEach(function (_, i) {
+			paid += flt(d.get_value("pay_" + i)) || 0;
+		});
+		const remaining = flt(invoice_total - paid, precision);
+		d.set_value("remaining_amount", remaining);
+		d.set_df_property(
+			"remaining_amount",
+			"label",
+			remaining < 0 ? __("Overpaid By") : __("Remaining")
+		);
+	}
+
 	modes.forEach(function (mode, idx) {
 		fields.push(
 			{ fieldtype: "Section Break", fieldname: "row_" + idx, label: "", hide_border: 1, collapsible: 0 },
@@ -231,6 +261,9 @@ function aqrar_render_payment_dialog(frm, modes) {
 				default: idx === 0 && modes.length === 1 ? invoice_total : 0,
 				options: "currency",
 				precision: precision,
+				onchange: function () {
+					refresh_remaining();
+				},
 			},
 			{ fieldtype: "Column Break", fieldname: "cb_" + idx },
 			{
@@ -241,10 +274,27 @@ function aqrar_render_payment_dialog(frm, modes) {
 					modes.forEach(function (_, i) {
 						d.set_value("pay_" + i, i === idx ? invoice_total : 0);
 					});
+					refresh_remaining();
 				},
 			}
 		);
 	});
+
+	fields.push(
+		{ fieldtype: "Section Break" },
+		{
+			fieldname: "remaining_amount",
+			fieldtype: "Currency",
+			label: __("Remaining"),
+			default: invoice_total,
+			read_only: 1,
+			options: "currency",
+			precision: precision,
+			description: is_cash_customer
+				? __("This customer pays in full — the whole amount must be tendered.")
+				: __("Left unpaid on this invoice. A part payment is allowed."),
+		}
+	);
 
 	function apply_payments_and_close(vals, submit) {
 		if (!vals) {
@@ -285,11 +335,16 @@ function aqrar_render_payment_dialog(frm, modes) {
 			return;
 		}
 
-		if (invoice_total - total_rounded > 0.0001) {
+		// A short tender is a part payment: allowed for a normal customer, who is
+		// left with an outstanding balance, and refused for a cash customer, who
+		// settles at the point of sale. It used to be refused for everybody.
+		const shortfall = flt(invoice_total - total_rounded, precision);
+		if (shortfall > 0.0001 && is_cash_customer) {
 			frappe.msgprint({
-				title: __("Incomplete"),
-				message: __("{0} still to be allocated", [
-					format_currency(invoice_total - total_rounded, currency),
+				title: __("Cash Customer"),
+				message: __("{0} must pay in full. {1} still to be allocated.", [
+					frm.doc.customer_name || frm.doc.customer,
+					format_currency(shortfall, currency),
 				]),
 				indicator: "red",
 			});

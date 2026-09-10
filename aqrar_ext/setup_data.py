@@ -200,6 +200,19 @@ CUSTOM_FIELDS = {
 			"insert_after": "dimension_col_break",
 		},
 	],
+	"Customer": [
+		{
+			# Cash customers settle in full at the point of sale. Both the Credit
+			# payment mode and a short payment in the collection popup are refused
+			# for them — see utils/cash_customer.py and
+			# public/js/sales_invoice_pos_total_popup.js.
+			"fieldname": "custom_is_cash_customer",
+			"label": "Cash Customer",
+			"fieldtype": "Check",
+			"insert_after": "customer_type",
+			"description": "Must pay in full at the time of sale. Credit and partial payment are not allowed.",
+		},
+	],
 	"Item Group": [
 		{
 			"fieldname": "custom_default_item_naming_series",

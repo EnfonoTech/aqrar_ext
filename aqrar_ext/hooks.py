@@ -54,6 +54,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/item_rate_tracking.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_person_default.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/valuation_floor.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/cash_customer.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/customer_statement.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/material_request_custom.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/purchase_receipt_final_grn.js?v={_ASSET_V}",
@@ -89,6 +90,8 @@ _COST_CENTER_HOOK = "aqrar_ext.aqrar_ext.utils.cost_center.apply_branch_cost_cen
 _RETURN_UOM_HOOK = "aqrar_ext.aqrar_ext.utils.return_rates.apply_uom_aware_returns"
 # Refuse to sell below the valuation rate of the stock being sold.
 _VALUATION_FLOOR_HOOK = "aqrar_ext.aqrar_ext.utils.valuation_floor.validate_valuation_floor"
+# A cash customer settles in full: no Credit mode, no partial payment.
+_CASH_CUSTOMER_HOOK = "aqrar_ext.aqrar_ext.utils.cash_customer.enforce_cash_customer"
 
 doc_events = {
 	"Purchase Invoice": {
@@ -122,6 +125,7 @@ doc_events = {
 			"aqrar_ext.aqrar_ext.overrides.sales_invoice.validate",
 			_COST_CENTER_HOOK,
 			_VALUATION_FLOOR_HOOK,
+			_CASH_CUSTOMER_HOOK,
 		],
 		"before_save": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_save",
 		"before_print": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_print",
@@ -159,6 +163,8 @@ fixtures = [
 					"Item Price-custom_minimum_selling_rate",
 					"Price List-custom_branch",
 					"Sales Invoice-custom_override_minimum_price",
+					# cash customers settle in full at the point of sale
+					"Customer-custom_is_cash_customer",
 					# header salesman, mirrored into the Sales Team table
 					"Sales Invoice-custom_sales_person",
 					"Sales Order-custom_sales_person",
