@@ -53,6 +53,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/price_assist.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/item_rate_tracking.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_person_default.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/valuation_floor.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/customer_statement.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/material_request_custom.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/purchase_receipt_final_grn.js?v={_ASSET_V}",
@@ -86,6 +87,8 @@ _COST_CENTER_HOOK = "aqrar_ext.aqrar_ext.utils.cost_center.apply_branch_cost_cen
 # A return's rate must follow the document it reverses even when the row's UOM
 # changes. Every doctype ERPNext lets you return needs it, not just Sales Invoice.
 _RETURN_UOM_HOOK = "aqrar_ext.aqrar_ext.utils.return_rates.apply_uom_aware_returns"
+# Refuse to sell below the valuation rate of the stock being sold.
+_VALUATION_FLOOR_HOOK = "aqrar_ext.aqrar_ext.utils.valuation_floor.validate_valuation_floor"
 
 doc_events = {
 	"Purchase Invoice": {
@@ -94,7 +97,7 @@ doc_events = {
 	},
 	"Delivery Note": {
 		"before_validate": _RETURN_UOM_HOOK,
-		"validate": _COST_CENTER_HOOK,
+		"validate": [_COST_CENTER_HOOK, _VALUATION_FLOOR_HOOK],
 	},
 	"Sales Order": {
 		"before_validate": "aqrar_ext.aqrar_ext.utils.sales_team.set_sales_team",
@@ -103,7 +106,7 @@ doc_events = {
 	# Quotation's cost_center is provisioned by setup_data, not shipped by
 	# ERPNext, so nothing populates the header without this. ERPNext fills the
 	# item rows from Item/Company defaults but knows nothing about the header.
-	"Quotation": {"validate": _COST_CENTER_HOOK},
+	"Quotation": {"validate": [_COST_CENTER_HOOK, _VALUATION_FLOOR_HOOK]},
 	"Purchase Order": {"validate": _COST_CENTER_HOOK},
 	"Stock Entry": {"validate": _COST_CENTER_HOOK},
 	"Payment Entry": {"validate": _COST_CENTER_HOOK},
@@ -118,6 +121,7 @@ doc_events = {
 		"validate": [
 			"aqrar_ext.aqrar_ext.overrides.sales_invoice.validate",
 			_COST_CENTER_HOOK,
+			_VALUATION_FLOOR_HOOK,
 		],
 		"before_save": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_save",
 		"before_print": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_print",
