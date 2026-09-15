@@ -59,6 +59,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/material_request_custom.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/purchase_receipt_final_grn.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_order_payment.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/delivery_note_valuation_rate.js?v={_ASSET_V}",
 ]
 
 doctype_js = {
@@ -99,7 +100,14 @@ doc_events = {
 		"validate": _COST_CENTER_HOOK,
 	},
 	"Delivery Note": {
-		"before_validate": _RETURN_UOM_HOOK,
+		# set_valuation_rate first, so a return row's rate still ends up correct:
+		# _RETURN_UOM_HOOK re-derives return rates from the invoiced row and runs
+		# after it, overwriting the plain valuation rate set_valuation_rate has no
+		# is_return guard to skip.
+		"before_validate": [
+			"aqrar_ext.overrides.delivery_note.set_valuation_rate",
+			_RETURN_UOM_HOOK,
+		],
 		"validate": [_COST_CENTER_HOOK, _VALUATION_FLOOR_HOOK],
 	},
 	"Sales Order": {
@@ -143,6 +151,7 @@ doc_events = {
 
 override_whitelisted_methods = {
 	"frappe.printing.page.print.print.get_print_settings_to_show": "aqrar_ext.api.print_utils.get_print_settings_to_show",
+	"erpnext.stock.doctype.delivery_note.delivery_note.make_sales_invoice": "aqrar_ext.overrides.delivery_note.make_sales_invoice",
 }
 
 # Fixtures
