@@ -1,6 +1,6 @@
-// aqrar_ext: Wire ItemMultiSelector into Sales Invoice, Quotation, Custom Quote
+// aqrar_ext: Wire ItemMultiSelector into Sales Invoice, Quotation, Custom Quote, Sales Order, Delivery Note
 
-var doctypes_with_items = ["Sales Invoice", "Quotation", "Custom Quote", "Purchase Invoice"];
+var doctypes_with_items = ["Sales Invoice", "Quotation", "Custom Quote", "Purchase Invoice", "Sales Order", "Delivery Note"];
 
 doctypes_with_items.forEach(function (doctype) {
     frappe.ui.form.on(doctype, {
@@ -26,6 +26,7 @@ doctypes_with_items.forEach(function (doctype) {
             if (!df || df.fieldtype !== "Link" || df.options !== "Item") return;
 
             var qty_field = frappe.meta.get_docfield(child_doctype, "qty") ? "qty" : null;
+            var uom_field = frappe.meta.get_docfield(child_doctype, "uom") ? "uom" : null;
 
             var btn = $(grid.wrapper).find(".grid-add-multiple-rows");
             btn.removeClass("hidden");
@@ -36,6 +37,7 @@ doctypes_with_items.forEach(function (doctype) {
                     target: grid,
                     fieldname: item_field,
                     qty_fieldname: qty_field,
+                    uom_fieldname: uom_field,
                 });
             });
         },
