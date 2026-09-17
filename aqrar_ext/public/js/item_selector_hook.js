@@ -1,6 +1,16 @@
-// aqrar_ext: Wire ItemMultiSelector into Sales Invoice, Quotation, Custom Quote, Sales Order, Delivery Note
+// aqrar_ext: Wire ItemMultiSelector into Sales Invoice, Quotation, Custom Quote, Sales Order,
+// Delivery Note, Purchase Invoice, Purchase Order, Purchase Receipt
 
-var doctypes_with_items = ["Sales Invoice", "Quotation", "Custom Quote", "Purchase Invoice", "Sales Order", "Delivery Note"];
+var doctypes_with_items = [
+    "Sales Invoice",
+    "Quotation",
+    "Custom Quote",
+    "Purchase Invoice",
+    "Sales Order",
+    "Delivery Note",
+    "Purchase Order",
+    "Purchase Receipt",
+];
 
 doctypes_with_items.forEach(function (doctype) {
     frappe.ui.form.on(doctype, {

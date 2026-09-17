@@ -37,6 +37,11 @@ const DOCTYPE_CONFIG = {
         type: "purchase",
         child_doctype: "Purchase Receipt Item",
         party_field: "supplier"
+    },
+    "Purchase Order": {
+        type: "purchase",
+        child_doctype: "Purchase Order Item",
+        party_field: "supplier"
     }
 };
 
