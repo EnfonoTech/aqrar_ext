@@ -106,9 +106,8 @@ frappe.ui.form.on("Sales Invoice", {
         frm._branch_setup_done = true;
 
         [
-            "posting_time", "set_posting_time", "due_date",
-            "is_pos", "pos_profile", "is_return", "is_debit_note",
-            "return_against", "amended_from", "scan_barcode",
+            "due_date",
+            "amended_from", "scan_barcode",
             "currency", "conversion_rate", "selling_price_list", "price_list_currency",
             "plc_conversion_rate", "ignore_pricing_rule",
             "apply_discount_on", "additional_discount_percentage", "discount_amount",
