@@ -18,6 +18,12 @@ frappe.ui.form.on("Sales Invoice", {
         (frm.doc.items || []).forEach((row) => {
             if (flt(row.qty) > 0) {
                 row.qty = -Math.abs(flt(row.qty));
+                // stock_qty was computed from the positive qty the user typed
+                // and never gets recalculated by this flip — left alone it
+                // stays positive, and ERPNext's own return-quantity check
+                // throws "Stock Qty must be negative" before our server-side
+                // fix_return_stock_qty() ever runs.
+                row.stock_qty = -Math.abs(flt(row.stock_qty));
             }
         });
     },
