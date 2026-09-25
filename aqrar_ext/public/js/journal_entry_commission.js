@@ -41,7 +41,12 @@ function apply_commission_defaults(frm, defaults) {
 
     frm.clear_table("accounts");
 
-    // Debit: commission expense. Credit: the customer it is owed to.
+    // Debit: commission expense. Credit: commission payable.
+    // Party/Reference used to be pre-filled as Customer/this invoice on the
+    // credit row, but the commission_payable account isn't configured as a
+    // Receivable/Payable account for the Customer party type — ERPNext's own
+    // party-type-vs-account validation rejected that on submit. Account
+    // stays pre-filled; Party is left for the user to fill in.
     const expense_account = defaults.accounts.commission_expense;
     if (expense_account) {
         const debit_row = frm.add_child("accounts");
@@ -50,10 +55,6 @@ function apply_commission_defaults(frm, defaults) {
     }
 
     const credit_row = frm.add_child("accounts");
-    credit_row.party_type = "Customer";
-    credit_row.party = defaults.customer;
-    credit_row.reference_type = "Sales Invoice";
-    credit_row.reference_name = defaults.sales_invoice;
     credit_row.cost_center = defaults.cost_center;
     if (defaults.accounts.commission_payable) {
         credit_row.account = defaults.accounts.commission_payable;
