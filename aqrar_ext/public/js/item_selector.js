@@ -9,6 +9,16 @@ function aqrar_escape(value) {
     return frappe.utils.escape_html(String(value == null ? "" : value));
 }
 
+// CSS text-overflow:ellipsis on these flex columns proved unreliable across
+// browsers/zoom levels — truncate the string itself instead, so the row
+// height and column boundaries are never in question. Full text stays
+// available via the title tooltip.
+function aqrar_truncate(value, max_len) {
+    var text = String(value == null ? "" : value);
+    if (text.length <= max_len) return text;
+    return text.slice(0, max_len - 1) + "…";
+}
+
 // Stays a Dialog (so the invoice form underneath is never left / unsaved
 // changes are never at risk) but is stretched to fill almost the whole
 // viewport, like a dedicated page.
@@ -315,9 +325,15 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             var row = $(
                 '<div class="item-selector-row" data-item="' + code_attr + '"' +
                      ' style="display:flex; align-items:center; padding:8px 4px; border-bottom:1px solid #f0f4f7;">' +
-                    '<span style="width:' + w.category + '%;" class="text-muted item-group-cell" data-item="' + code_attr + '">...</span>' +
-                    '<span style="width:' + w.item_name + '%;">' + aqrar_escape(item_name) + '</span>' +
-                    '<span style="width:' + w.item_code + '%;"><b>' + aqrar_escape(item_code) + '</b></span>' +
+                    '<span style="flex:0 0 ' + w.category + '%; max-width:' + w.category + '%; min-width:0;' +
+                        ' overflow:hidden; white-space:nowrap; display:block; padding-right:6px; box-sizing:border-box;"' +
+                        ' class="text-muted item-group-cell" data-item="' + code_attr + '">...</span>' +
+                    '<span style="flex:0 0 ' + w.item_name + '%; max-width:' + w.item_name + '%; min-width:0;' +
+                        ' overflow:hidden; white-space:nowrap; display:block; padding-right:6px; box-sizing:border-box;"' +
+                        ' title="' + code_attr + ' - ' + aqrar_escape(item_name) + '">' + aqrar_escape(aqrar_truncate(item_name, 32)) + '</span>' +
+                    '<span style="flex:0 0 ' + w.item_code + '%; max-width:' + w.item_code + '%; min-width:0;' +
+                        ' overflow:hidden; white-space:nowrap; display:block; padding-right:6px; box-sizing:border-box;"' +
+                        ' title="' + code_attr + '"><b>' + aqrar_escape(aqrar_truncate(item_code, 16)) + '</b></span>' +
                     '<span style="width:' + w.stock + '%;">' +
                         '<span class="stock-badge badge" data-item="' + code_attr + '">...</span>' +
                         '<br><small class="text-muted stock-wh-label" data-item="' + code_attr + '"></small>' +
@@ -429,7 +445,9 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                     var $row = $(this);
                     var code = $row.data("aqrar-item");
                     var item = item_map[code] || {};
-                    $row.find(".item-group-cell").text(item.item_group || "");
+                    $row.find(".item-group-cell")
+                        .text(aqrar_truncate(item.item_group || "", 18))
+                        .attr("title", item.item_group || "");
                     if (item.standard_rate) {
                         $row.find(".price-cell").text(format_currency(item.standard_rate));
                     }
@@ -596,8 +614,9 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         var raw = this.dialog.fields_dict.min_stock.get_value();
         var threshold = parseFloat(raw);
         var has_threshold = raw !== "" && raw != null && !isNaN(threshold);
+        var $rows = me.dialog.$wrapper.find(".item-selector-row");
 
-        me.dialog.$wrapper.find(".item-selector-row").each(function () {
+        $rows.each(function () {
             var $row = $(this);
             var code = $row.data("aqrar-item");
             var stock = me.stock_map ? me.stock_map[code] : undefined;
@@ -608,6 +627,23 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                 $row.toggle(stock >= threshold);
             }
         });
+
+        // Among the rows that pass the threshold, surface the best-stocked
+        // ones first — not just "enough", but "most available" first. Moves
+        // the actual row elements (not clones), so their click handlers stay
+        // attached; hidden rows are pushed after so they don't interleave.
+        if (has_threshold) {
+            var $list = $rows.first().parent();
+            var $visible_sorted = $rows.filter(":visible").sort(function (a, b) {
+                var stock_a = (me.stock_map && me.stock_map[$(a).data("aqrar-item")]) || 0;
+                var stock_b = (me.stock_map && me.stock_map[$(b).data("aqrar-item")]) || 0;
+                return stock_b - stock_a;
+            });
+            var $hidden = $rows.filter(":hidden");
+
+            $visible_sorted.each(function () { $list.append(this); });
+            $hidden.each(function () { $list.append(this); });
+        }
     }
 
     add_row_to_grid(item_code, qty, uom) {

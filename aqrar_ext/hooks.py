@@ -60,10 +60,15 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/purchase_receipt_final_grn.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_order_payment.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/delivery_note_valuation_rate.js?v={_ASSET_V}",
+	# doctype_js only loads once a doctype's full-form meta is fetched — the
+	# Item list view and the "New Item" Quick Entry dialog never trigger that,
+	# so item.js silently never ran unless a full Item form had been opened
+	# earlier in the session. app_include_js always loads, regardless of
+	# which page/dialog is opened first.
+	f"/assets/aqrar_ext/js/item.js?v={_ASSET_V}",
 ]
 
 doctype_js = {
-	"Item": "public/js/item.js",
 	"Journal Entry": "public/js/journal_entry_commission.js",
 }
 
@@ -93,11 +98,17 @@ _RETURN_UOM_HOOK = "aqrar_ext.aqrar_ext.utils.return_rates.apply_uom_aware_retur
 _VALUATION_FLOOR_HOOK = "aqrar_ext.aqrar_ext.utils.valuation_floor.validate_valuation_floor"
 # A cash customer settles in full: no Credit mode, no partial payment.
 _CASH_CUSTOMER_HOOK = "aqrar_ext.aqrar_ext.utils.cash_customer.enforce_cash_customer"
+# Keep Item Price's last selling/buying rate current per customer/supplier —
+# only on the final transaction (Sales/Purchase Invoice), not on provisional
+# documents like Quotation or Purchase Order.
+_LAST_SELLING_PRICE_HOOK = "aqrar_ext.aqrar_ext.utils.last_price.update_last_selling_price"
+_LAST_PURCHASE_PRICE_HOOK = "aqrar_ext.aqrar_ext.utils.last_price.update_last_purchase_price"
 
 doc_events = {
 	"Purchase Invoice": {
 		"before_validate": _RETURN_UOM_HOOK,
 		"validate": _COST_CENTER_HOOK,
+		"on_submit": _LAST_PURCHASE_PRICE_HOOK,
 	},
 	"Delivery Note": {
 		# set_valuation_rate first, so a return row's rate still ends up correct:
@@ -137,6 +148,7 @@ doc_events = {
 		],
 		"before_save": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_save",
 		"before_print": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_print",
+		"on_submit": _LAST_SELLING_PRICE_HOOK,
 	},
 	"POS Invoice": {"before_validate": _RETURN_UOM_HOOK},
 	"Material Request": {
