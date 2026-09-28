@@ -155,7 +155,7 @@ doc_events = {
 		"before_print": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_print",
 		"on_submit": _LAST_SELLING_PRICE_HOOK,
 	},
-	"POS Invoice": {"before_validate": _RETURN_UOM_HOOK},
+	"POS Invoice": {"before_validate": [_RETURN_QTY_HOOK, _RETURN_UOM_HOOK]},
 	"Material Request": {
 		"validate": "aqrar_ext.events.material_request.validate_branch_user",
 	},

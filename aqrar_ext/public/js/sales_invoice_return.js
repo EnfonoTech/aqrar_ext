@@ -70,6 +70,10 @@ function apply_invoiced_rate(frm, row) {
 
             frm.refresh_field("items");
             frm.dirty();
+            // The conversion factor was written directly, so no
+            // conversion_factor event fired; tell return_qty_positive.js so it
+            // restates Total / Returned Qty in the new UOM.
+            frm.script_manager.trigger("aqrar_return_uom_applied", row.doctype, row.name);
             return frm.cscript.calculate_taxes_and_totals();
         });
 }
