@@ -43,6 +43,30 @@ _RATE_TRACKING_DOCTYPES = (
 	"Purchase Receipt Item",
 )
 
+# CR-014: on a return the user types the quantity given back, positive, into
+# Return Qty; qty follows as its negative (public/js/return_qty_positive.js,
+# utils/return_qty.py). in_list_view is 0 on purpose: the script adds the column
+# to the grid on return documents only, so every other document's grid keeps
+# exactly the columns it has today.
+_RETURN_QTY_FIELD = {
+	"fieldname": "custom_return_qty",
+	"label": "Return Qty",
+	"fieldtype": "Float",
+	"insert_after": "qty",
+	"depends_on": "eval:parent.is_return",
+	"columns": 1,
+	"non_negative": 1,
+	"no_copy": 1,
+	"print_hide": 1,
+}
+
+_RETURN_QTY_DOCTYPES = (
+	"Sales Invoice Item",
+	"Delivery Note Item",
+	"Purchase Invoice Item",
+	"Purchase Receipt Item",
+)
+
 # Fields the app's own code reads. They were previously listed in the fixtures
 # filter in hooks.py but never exported, so a fresh install raised
 # "Unknown column" the first time the feature was used.
@@ -363,6 +387,9 @@ for _dt in _RATE_TRACKING_DOCTYPES:
 	CUSTOM_FIELDS.setdefault(_dt, []).extend(
 		dict(field) for field in _RATE_TRACKING_FIELDS
 	)
+
+for _dt in _RETURN_QTY_DOCTYPES:
+	CUSTOM_FIELDS.setdefault(_dt, []).append(dict(_RETURN_QTY_FIELD))
 
 
 def enforce_sales_person_permission_flag():

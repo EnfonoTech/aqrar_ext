@@ -30,7 +30,7 @@ Installing without migrating leaves those fields absent.
 | CR-011 | Enhanced Stock Ledger (company / transaction type / item filters) | `aqrar_ext/report/stock_ledger_report/` |
 | CR-012 | Aqrar Delivery Note print format (no prices) | `fixtures/print_format.json` |
 | CR-013, CR-029 | Material Request fulfilment counter, close/reopen, urgent flag | `public/js/material_request_custom.js`, `events/material_request.py` |
-| CR-014 | Credit-note sign handling (positive entry, negative posting) | `public/js/sales_invoice_return.js`, `overrides/sales_invoice.py` |
+| CR-014 | Return Qty column (positive entry, qty posted negative) on Sales Invoice, Delivery Note, Purchase Invoice and Purchase Receipt returns | `public/js/return_qty_positive.js`, `aqrar_ext/utils/return_qty.py`, `setup_data.py` (`custom_return_qty`) |
 | CR-015, CR-019 | Price List Bulk Editor, branch price lists, minimum selling rate | `aqrar_ext/page/price_list_bulk_editor/`, `aqrar_ext/utils/pricing.py` |
 | CR-016 | Print preview on save | `public/js/auto_print_preview.js` |
 | CR-017 | Stock Entry / Material Request / Expense Claim workflows | `fixtures/workflow*.json`, `setup_data.py` |

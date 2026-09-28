@@ -44,6 +44,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/sales_invoice_pos_total_popup.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/workflowapproval.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_return.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/return_qty_positive.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_branch_price_list.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/auto_print_preview.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/notification_sound.js?v={_ASSET_V}",
@@ -94,6 +95,8 @@ _COST_CENTER_HOOK = "aqrar_ext.aqrar_ext.utils.cost_center.apply_branch_cost_cen
 # A return's rate must follow the document it reverses even when the row's UOM
 # changes. Every doctype ERPNext lets you return needs it, not just Sales Invoice.
 _RETURN_UOM_HOOK = "aqrar_ext.aqrar_ext.utils.return_rates.apply_uom_aware_returns"
+# CR-014: returns are entered with positive quantities and posted negative.
+_RETURN_QTY_HOOK = "aqrar_ext.aqrar_ext.utils.return_qty.flip_return_quantities"
 # Refuse to sell below the valuation rate of the stock being sold.
 _VALUATION_FLOOR_HOOK = "aqrar_ext.aqrar_ext.utils.valuation_floor.validate_valuation_floor"
 # A cash customer settles in full: no Credit mode, no partial payment.
@@ -106,7 +109,7 @@ _LAST_PURCHASE_PRICE_HOOK = "aqrar_ext.aqrar_ext.utils.last_price.update_last_pu
 
 doc_events = {
 	"Purchase Invoice": {
-		"before_validate": _RETURN_UOM_HOOK,
+		"before_validate": [_RETURN_QTY_HOOK, _RETURN_UOM_HOOK],
 		"validate": _COST_CENTER_HOOK,
 		"on_submit": _LAST_PURCHASE_PRICE_HOOK,
 	},
@@ -116,6 +119,7 @@ doc_events = {
 		# after it, overwriting the plain valuation rate set_valuation_rate has no
 		# is_return guard to skip.
 		"before_validate": [
+			_RETURN_QTY_HOOK,
 			"aqrar_ext.overrides.delivery_note.set_valuation_rate",
 			_RETURN_UOM_HOOK,
 		],
@@ -137,6 +141,7 @@ doc_events = {
 		# calculate_taxes_and_totals during validate, so a Sales Team row appended
 		# after that would carry a zero amount until the next save.
 		"before_validate": [
+			_RETURN_QTY_HOOK,
 			"aqrar_ext.aqrar_ext.utils.sales_team.set_sales_team",
 			_RETURN_UOM_HOOK,
 		],
@@ -155,7 +160,7 @@ doc_events = {
 		"validate": "aqrar_ext.events.material_request.validate_branch_user",
 	},
 	"Purchase Receipt": {
-		"before_validate": _RETURN_UOM_HOOK,
+		"before_validate": [_RETURN_QTY_HOOK, _RETURN_UOM_HOOK],
 		"validate": _COST_CENTER_HOOK,
 		"before_cancel": "aqrar_ext.events.purchase_receipt.block_cancel_if_consumed",
 	},
