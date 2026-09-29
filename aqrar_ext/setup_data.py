@@ -43,6 +43,59 @@ _RATE_TRACKING_DOCTYPES = (
 	"Purchase Receipt Item",
 )
 
+# CR-014: on a return each item row gets three columns next to qty, all in the
+# row's UOM (public/js/return_qty_positive.js, utils/return_qty.py):
+#   Total Qty (read-only)    - what the original row carried
+#   Returned Qty (read-only) - already returned against it by earlier returns
+#   Return Qty               - where the user types the quantity given back,
+#                              positive; qty follows as its negative
+# in_list_view is 0 on purpose: the script adds the columns to the grid on
+# return documents only, so every other document's grid keeps exactly the
+# columns it has today.
+_RETURN_QTY_FIELDS = [
+	{
+		"fieldname": "custom_total_qty",
+		"label": "Total Qty",
+		"fieldtype": "Float",
+		"insert_after": "qty",
+		"depends_on": "eval:parent.is_return",
+		"columns": 1,
+		"read_only": 1,
+		"no_copy": 1,
+		"print_hide": 1,
+	},
+	{
+		"fieldname": "custom_returned_qty",
+		"label": "Returned Qty",
+		"fieldtype": "Float",
+		"insert_after": "custom_total_qty",
+		"depends_on": "eval:parent.is_return",
+		"columns": 1,
+		"read_only": 1,
+		"no_copy": 1,
+		"print_hide": 1,
+	},
+	{
+		"fieldname": "custom_return_qty",
+		"label": "Return Qty",
+		"fieldtype": "Float",
+		"insert_after": "custom_returned_qty",
+		"depends_on": "eval:parent.is_return",
+		"columns": 1,
+		"non_negative": 1,
+		"no_copy": 1,
+		"print_hide": 1,
+	},
+]
+
+_RETURN_QTY_DOCTYPES = (
+	"Sales Invoice Item",
+	"Delivery Note Item",
+	"Purchase Invoice Item",
+	"Purchase Receipt Item",
+	"POS Invoice Item",
+)
+
 # Fields the app's own code reads. They were previously listed in the fixtures
 # filter in hooks.py but never exported, so a fresh install raised
 # "Unknown column" the first time the feature was used.
@@ -363,6 +416,9 @@ for _dt in _RATE_TRACKING_DOCTYPES:
 	CUSTOM_FIELDS.setdefault(_dt, []).extend(
 		dict(field) for field in _RATE_TRACKING_FIELDS
 	)
+
+for _dt in _RETURN_QTY_DOCTYPES:
+	CUSTOM_FIELDS.setdefault(_dt, []).extend(dict(field) for field in _RETURN_QTY_FIELDS)
 
 
 def enforce_sales_person_permission_flag():

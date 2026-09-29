@@ -7,29 +7,15 @@ Hook-style handlers (payment terms, print display, price floor) live in
 
 import frappe
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
-from frappe.utils import flt
 
 
 class CustomSalesInvoice(SalesInvoice):
-	def before_validate(self):
-		# Must run before super().validate(): ERPNext's own return-quantity
-		# check (erpnext.controllers.sales_and_purchase_return.validate_quantity)
-		# throws "Stock Qty must be negative in return document" the moment it
-		# sees a positive stock_qty, and that check lives inside validate().
-		# Fixing stock_qty only after super().validate() already ran — as this
-		# used to — is too late to stop the throw.
-		if self.is_return:
-			self.fix_return_stock_qty()
-
 	def validate(self):
 		# UOM-aware return rates are applied on before_validate, for every
-		# returnable doctype — see utils/return_rates.apply_uom_aware_returns.
+		# returnable doctype — see utils/return_rates.apply_uom_aware_returns —
+		# and return quantities are flipped negative there too, in
+		# utils/return_qty.flip_return_quantities.
 		super().validate()
-
-	def before_submit(self):
-		# SalesInvoice has no before_submit in ERPNext v15 — nothing to delegate to.
-		if self.is_return:
-			self.fix_return_stock_qty()
 
 	def validate_update_after_submit(self):
 		"""Exempt ``selling_price_list`` from the after-submit change check.
@@ -49,12 +35,3 @@ class CustomSalesInvoice(SalesInvoice):
 		finally:
 			self.selling_price_list = current_price_list
 
-	def fix_return_stock_qty(self):
-		"""Keep the stock quantity of a credit note negative (CR-014).
-
-		The return form shows positive quantities for usability; ERPNext must
-		still post a negative stock movement.
-		"""
-		for item in self.items:
-			if flt(item.stock_qty) > 0:
-				item.stock_qty = -flt(item.stock_qty)
