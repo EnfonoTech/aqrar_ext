@@ -45,6 +45,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/workflowapproval.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_return.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/return_qty_positive.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/purchase_invoice_selling_price.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_branch_price_list.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/auto_print_preview.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/notification_sound.js?v={_ASSET_V}",
@@ -107,12 +108,14 @@ _CASH_CUSTOMER_HOOK = "aqrar_ext.aqrar_ext.utils.cash_customer.enforce_cash_cust
 # documents like Quotation or Purchase Order.
 _LAST_SELLING_PRICE_HOOK = "aqrar_ext.aqrar_ext.utils.last_price.update_last_selling_price"
 _LAST_PURCHASE_PRICE_HOOK = "aqrar_ext.aqrar_ext.utils.last_price.update_last_purchase_price"
+# Standard Selling Price column on Purchase Invoice: written to Item Price on submit.
+_STANDARD_SELLING_HOOK = "aqrar_ext.aqrar_ext.utils.selling_price.update_standard_selling_prices"
 
 doc_events = {
 	"Purchase Invoice": {
 		"before_validate": [_RETURN_QTY_HOOK, _RETURN_UOM_HOOK],
 		"validate": _COST_CENTER_HOOK,
-		"on_submit": _LAST_PURCHASE_PRICE_HOOK,
+		"on_submit": [_LAST_PURCHASE_PRICE_HOOK, _STANDARD_SELLING_HOOK],
 	},
 	"Delivery Note": {
 		# set_valuation_rate first, so a return row's rate still ends up correct:

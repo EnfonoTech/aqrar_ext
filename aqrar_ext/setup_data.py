@@ -417,6 +417,21 @@ for _dt in _RATE_TRACKING_DOCTYPES:
 		dict(field) for field in _RATE_TRACKING_FIELDS
 	)
 
+# Purchase Invoice: the row's current selling price (default selling price list,
+# row UOM), editable; written to Item Price on submit by
+# utils/selling_price.update_standard_selling_prices.
+CUSTOM_FIELDS.setdefault("Purchase Invoice Item", []).append(
+	{
+		"fieldname": "custom_standard_selling_rate",
+		"label": "Standard Selling Price",
+		"fieldtype": "Currency",
+		"insert_after": "rate",
+		"in_list_view": 1,
+		"columns": 1,
+		"print_hide": 1,
+	}
+)
+
 for _dt in _RETURN_QTY_DOCTYPES:
 	CUSTOM_FIELDS.setdefault(_dt, []).extend(dict(field) for field in _RETURN_QTY_FIELDS)
 

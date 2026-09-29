@@ -21,7 +21,12 @@ def get_selling_price_lists(cost_center=None):
 
 @frappe.whitelist()
 def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, item_code=None):
-	"""Return a pivot grid: rows = items, cols = one per price list with rate/min."""
+	"""Return a pivot grid: rows = item x UOM, cols = one per price list with rate/min.
+
+	An item sold in several UOMs (Pair, PKT, Box) gets one row per UOM, so a
+	price can be set for each: ERPNext looks up the Item Price in the UOM being
+	sold before falling back to the stock UOM price times the conversion factor.
+	"""
 	frappe.has_permission("Item Price", "read", throw=True)
 
 	if isinstance(price_lists, str):
@@ -53,6 +58,7 @@ def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, i
 		return {"columns": [], "data": [], "price_lists": [], "item_count": 0}
 
 	item_codes = [d.item_code for d in items]
+	item_uoms = get_item_uoms(items)
 
 	all_prices = frappe.get_all(
 		"Item Price",
@@ -60,11 +66,15 @@ def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, i
 			"item_code": ("in", item_codes),
 			"price_list": ("in", price_lists),
 			"selling": 1,
+			# General prices only. Customer-specific rows (last-price tracking,
+			# utils/last_price.py) are a different price; showing one here let
+			# an edit silently change that customer's price instead.
+			"customer": ("is", "not set"),
+			"supplier": ("is", "not set"),
 		},
 		fields=[
 			"name", "item_code", "price_list", "uom",
 			"price_list_rate", "custom_minimum_selling_rate",
-			"customer", "supplier",
 			"owner", "creation", "modified_by", "modified",
 		],
 	)
@@ -72,7 +82,7 @@ def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, i
 	price_map = {}
 	for p in all_prices:
 		key = (p.item_code, p.price_list, p.uom)
-		if key not in price_map or (not p.customer and not p.supplier):
+		if key not in price_map:
 			price_map[key] = {
 				"item_price_name": p.name,
 				"rate": p.price_list_rate,
@@ -100,19 +110,44 @@ def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, i
 		})
 
 	data = []
+	row_meta = []
 	for item in items:
-		row = [item.item_code, item.item_name, item.stock_uom]
-		for pl_name in price_lists:
-			info = price_map.get((item.item_code, pl_name, item.stock_uom)) or {}
-			row.append(info if info else {})
-		data.append(row)
+		for idx, (uom, factor) in enumerate(item_uoms[item.item_code]):
+			row = [item.item_code, item.item_name, uom]
+			for pl_name in price_lists:
+				info = price_map.get((item.item_code, pl_name, uom)) or {}
+				row.append(info if info else {})
+			data.append(row)
+			row_meta.append({"conversion_factor": factor, "first_uom": idx == 0})
 
 	return {
 		"columns": columns,
 		"data": data,
+		"row_meta": row_meta,
 		"price_lists": price_lists,
 		"item_count": len(items),
 	}
+
+
+def get_item_uoms(items):
+	"""{item_code: [(uom, conversion_factor), ...]}, stock UOM first.
+
+	From each item's UOM table (UOM Conversion Detail). The stock UOM is always
+	included even when the table does not list it.
+	"""
+	conversions = frappe.get_all(
+		"UOM Conversion Detail",
+		filters={"parenttype": "Item", "parent": ("in", [d.item_code for d in items])},
+		fields=["parent", "uom", "conversion_factor"],
+		order_by="conversion_factor asc",
+	)
+
+	out = {d.item_code: [(d.stock_uom, 1.0)] for d in items}
+	for c in conversions:
+		uoms = out.get(c.parent)
+		if uoms is not None and c.uom not in [u for u, _ in uoms]:
+			uoms.append((c.uom, flt(c.conversion_factor)))
+	return out
 
 
 @frappe.whitelist()
@@ -143,6 +178,8 @@ def save_cell(item_code, price_list, uom, rate, min_rate=None):
 			"price_list": price_list,
 			"uom": uom,
 			"selling": 1,
+			"customer": ("is", "not set"),
+			"supplier": ("is", "not set"),
 		},
 	)
 
