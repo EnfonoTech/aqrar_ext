@@ -235,3 +235,17 @@ td:hover .ple-hist-btn { opacity: 1; }
 .ple-saving .ple-inp-rate { border-color: #f59e0b !important; }
 .ple-saved { background: #ecfdf5 !important; transition: background .3s; }
 .ple-error { background: #fef2f2 !important; }
+
+/* One row per item x UOM: repeat rows of the same item are muted, and a
+   divider opens each item's group. */
+.ple-table tr.ple-uom-first td {
+	border-top: 1px solid var(--border-color);
+}
+.ple-table tr.ple-uom-extra td.ple-col-sticky:not(:nth-child(3)) {
+	color: var(--text-muted);
+}
+.ple-uom-factor {
+	color: var(--text-muted);
+	font-size: var(--text-xs);
+	margin-left: 2px;
+}

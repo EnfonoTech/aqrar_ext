@@ -9,6 +9,7 @@ frappe.pages["price-list-bulk-editor"].on_page_load = function (wrapper) {
 
 	var columns = [];
 	var data = [];
+	var row_meta = [];
 	var current_pls = [];
 
 	var chrome_html = `
@@ -125,6 +126,7 @@ frappe.pages["price-list-bulk-editor"].on_page_load = function (wrapper) {
 				}
 				columns = msg.columns;
 				data = msg.data;
+				row_meta = msg.row_meta || [];
 				build_table(msg.item_count, msg.price_lists.length);
 			},
 			error: function () {
@@ -154,11 +156,18 @@ frappe.pages["price-list-bulk-editor"].on_page_load = function (wrapper) {
 		h += '</tr></thead><tbody>';
 
 		d.forEach(function (row, ri) {
-			h += '<tr>';
+			// One row per item x UOM: the first (stock UOM) row opens the item's
+			// group, the others repeat the item muted so the grid reads as groups.
+			var meta = row_meta[ri] || { first_uom: true, conversion_factor: 1 };
+			h += '<tr class="' + (meta.first_uom ? "ple-uom-first" : "ple-uom-extra") + '">';
 			row.forEach(function (cell, ci) {
 				var sticky_cls = ci < 3 ? " ple-col-sticky" : "";
 				if (!c[ci].editable) {
-					h += '<td class="' + sticky_cls + '">' + frappe.utils.escape_html(String(cell || "")) + '</td>';
+					var text = frappe.utils.escape_html(String(cell || ""));
+					if (ci === 2 && meta.conversion_factor && meta.conversion_factor !== 1) {
+						text += ' <span class="ple-uom-factor">&times;' + frappe.utils.escape_html(String(meta.conversion_factor)) + '</span>';
+					}
+					h += '<td class="' + sticky_cls + '">' + text + '</td>';
 				} else {
 					var info = cell && typeof cell === "object" ? cell : {};
 					var rate = info.rate != null ? info.rate : "";
@@ -191,6 +200,7 @@ frappe.pages["price-list-bulk-editor"].on_page_load = function (wrapper) {
 		$("#ple-status").html(
 			'<div class="ple-status-bar">' +
 			'<span class="ple-badge">' + item_count + ' ' + __("items") + '</span>' +
+			(d.length !== item_count ? '<span class="ple-badge">' + d.length + ' ' + __("item UOMs") + '</span>' : '') +
 			'<span class="ple-badge">' + pl_count + ' ' + __("price lists") + '</span>' +
 			'<span class="ple-hint">' + __("Edit then Enter / Tab to save.") + '</span>' +
 			'</div>'
@@ -229,7 +239,11 @@ frappe.pages["price-list-bulk-editor"].on_page_load = function (wrapper) {
 		var old_min  = parseFloat(old_info.min_rate) || 0;
 
 		var new_rate = parseFloat($rate_inp.val().trim());
-		var new_min  = parseFloat($min_inp.val().trim());
+		// An empty Min means "no floor", not an invalid entry: parseFloat("") is
+		// NaN, which used to abort the save, so a rate could never be saved on a
+		// cell without a minimum.
+		var min_str  = $min_inp.val().trim();
+		var new_min  = min_str === "" ? 0 : parseFloat(min_str);
 		if (isNaN(new_rate) || new_rate < 0) { $rate_inp.val(old_rate || ""); return; }
 		if (isNaN(new_min)  || new_min  < 0) { $min_inp.val(old_min || "");   return; }
 		if (new_rate === old_rate && new_min === old_min) return;
