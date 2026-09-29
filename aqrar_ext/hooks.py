@@ -71,6 +71,7 @@ app_include_js = [
 
 doctype_js = {
 	"Journal Entry": "public/js/journal_entry_commission.js",
+	"Payment Entry": "public/js/payment_entry.js",
 }
 
 # Controller overrides
