@@ -10,6 +10,14 @@ carry `mandatory_depends_on` on paid_from/paid_to account type being Bank, and
 `PaymentEntry.validate_transaction_reference` throws "Reference No and Reference
 Date is mandatory for Bank transaction". Account type is the more reliable test,
 and native also covers `reference_date`, which we never did.
+
+Bank Transfer is the one exception: on production `Bank Account - AC` (the
+default account for that mode) is Account Type = Bank, so both of ERPNext's
+own checks above make reference_no/reference_date mandatory for it. But a
+Bank Transfer often has no cheque/reference number to give, and the account
+still needs to stay a real Bank account for Bank Reconciliation. So that one
+mode skips ERPNext's own mandatory check (see SKIP_TRANSACTION_REFERENCE_MOP
+below) rather than the account being demoted to a non-Bank type.
 """
 
 import frappe
@@ -25,11 +33,23 @@ REFERENCE_MODE_NAMES = {
 	"Wire Transfer",
 }
 
+# Modes exempted from ERPNext's own "Reference No and Reference Date is
+# mandatory for Bank transaction" check (validate_transaction_reference),
+# regardless of the paid_from/paid_to account's type. See module docstring.
+SKIP_TRANSACTION_REFERENCE_MOP = {
+	"Bank Transfer",
+}
+
 
 class CustomPaymentEntry(PaymentEntry):
 	def validate(self):
 		super().validate()
 		self.validate_bank_reference()
+
+	def validate_transaction_reference(self):
+		if self.mode_of_payment in SKIP_TRANSACTION_REFERENCE_MOP:
+			return
+		super().validate_transaction_reference()
 
 	def requires_unique_reference(self):
 		return bool(self.mode_of_payment) and self.mode_of_payment in REFERENCE_MODE_NAMES
