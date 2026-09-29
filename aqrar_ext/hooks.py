@@ -168,6 +168,9 @@ doc_events = {
 		"validate": _COST_CENTER_HOOK,
 		"before_cancel": "aqrar_ext.events.purchase_receipt.block_cancel_if_consumed",
 	},
+	"Customer": {
+		"validate": "aqrar_ext.overrides.customer.validate_vat_uniqueness",
+	},
 }
 
 override_whitelisted_methods = {
@@ -195,6 +198,10 @@ fixtures = [
 					"Sales Invoice-custom_override_minimum_price",
 					# cash customers settle in full at the point of sale
 					"Customer-custom_is_cash_customer",
+					# Customer IDs: VAT + arbitrary additional identifiers
+					"Customer-customer_ids_section",
+					"Customer-custom_vat_registration_number",
+					"Customer-custom_additional_ids",
 					# header salesman, mirrored into the Sales Team table
 					"Sales Invoice-custom_sales_person",
 					"Sales Order-custom_sales_person",
@@ -259,6 +266,9 @@ fixtures = [
 					"Branch Approver",
 					"Branch Accountant",
 					"Damage User",
+					# Exempts a user from the Customer VAT Registration Number
+					# uniqueness check (aqrar_ext.overrides.customer)
+					"Allow Duplicate VAT",
 				],
 			]
 		],
