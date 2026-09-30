@@ -166,7 +166,10 @@ doc_events = {
 		"before_cancel": "aqrar_ext.events.purchase_receipt.block_cancel_if_consumed",
 	},
 	"Customer": {
-		"validate": "aqrar_ext.overrides.customer.validate_vat_uniqueness",
+		"validate": [
+			"aqrar_ext.overrides.customer.validate_vat_format",
+			"aqrar_ext.overrides.customer.validate_vat_uniqueness",
+		],
 	},
 }
 
