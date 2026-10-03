@@ -62,6 +62,64 @@ frappe.ui.form.on("Material Request", {
     // raced with them and could write "Stopped" onto a reopened request.
 });
 
+// Stock balance of source / target warehouse as of the MR transaction date
+function set_warehouse_qty(frm, cdt, cdn, warehouse_field, qty_field) {
+    var row = locals[cdt][cdn];
+    if (!row.item_code || !row[warehouse_field]) {
+        frappe.model.set_value(cdt, cdn, qty_field, 0);
+        return;
+    }
+    frappe.call({
+        method: "aqrar_ext.events.material_request.get_warehouse_qty",
+        args: {
+            item_code: row.item_code,
+            warehouse: row[warehouse_field],
+            transaction_date: frm.doc.transaction_date,
+        },
+        callback: function (r) {
+            frappe.model.set_value(cdt, cdn, qty_field, flt(r.message));
+        },
+    });
+}
+
+function refresh_warehouse_qty(frm, cdt, cdn) {
+    set_warehouse_qty(frm, cdt, cdn, "from_warehouse", "custom_source_warehouse_qty");
+    set_warehouse_qty(frm, cdt, cdn, "warehouse", "custom_target_warehouse_qty");
+}
+
+frappe.ui.form.on("Material Request", {
+    setup(frm) {
+        // Show the per-row warehouses and their qty side by side in the grid
+        var grid = frm.get_field("items").grid;
+        ["from_warehouse", "custom_source_warehouse_qty", "warehouse", "custom_target_warehouse_qty"]
+            .forEach(function (f) { grid.update_docfield_property(f, "in_list_view", 1); });
+        ["from_warehouse", "warehouse"].forEach(function (f) {
+            grid.update_docfield_property(f, "columns", 2);
+        });
+        // keep the grid readable: drop the less useful columns
+        ["schedule_date"].forEach(function (f) { grid.update_docfield_property(f, "in_list_view", 0); });
+    },
+
+    transaction_date(frm) {
+        (frm.doc.items || []).forEach(function (row) {
+            refresh_warehouse_qty(frm, row.doctype, row.name);
+        });
+    },
+});
+
+frappe.ui.form.on("Material Request Item", {
+    item_code(frm, cdt, cdn) {
+        // defer so ERPNext's own warehouse defaulting lands first
+        setTimeout(function () { refresh_warehouse_qty(frm, cdt, cdn); }, 500);
+    },
+    from_warehouse(frm, cdt, cdn) {
+        set_warehouse_qty(frm, cdt, cdn, "from_warehouse", "custom_source_warehouse_qty");
+    },
+    warehouse(frm, cdt, cdn) {
+        set_warehouse_qty(frm, cdt, cdn, "warehouse", "custom_target_warehouse_qty");
+    },
+});
+
 function show_fulfillment(frm) {
     $(".aqrar-fulfillment").remove();
 

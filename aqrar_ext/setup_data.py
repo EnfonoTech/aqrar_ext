@@ -100,6 +100,52 @@ _RETURN_QTY_DOCTYPES = (
 # filter in hooks.py but never exported, so a fresh install raised
 # "Unknown column" the first time the feature was used.
 CUSTOM_FIELDS = {
+	"Stock Entry Detail": [
+		{
+			# Stock balance as of the entry's posting date; filled by
+			# stock_entry_warehouse_qty.js via events.material_request.
+			"fieldname": "custom_source_warehouse_qty",
+			"label": "Source Warehouse Qty",
+			"fieldtype": "Float",
+			"insert_after": "s_warehouse",
+			"read_only": 1,
+			"no_copy": 1,
+			"in_list_view": 1,
+		},
+		{
+			"fieldname": "custom_target_warehouse_qty",
+			"label": "Target Warehouse Qty",
+			"fieldtype": "Float",
+			"insert_after": "t_warehouse",
+			"read_only": 1,
+			"no_copy": 1,
+			"in_list_view": 1,
+		},
+	],
+	"Material Request Item": [
+		{
+			# Read-only stock snapshots as of the MR's transaction date, filled
+			# by material_request_custom.js via events.material_request.
+			"fieldname": "custom_source_warehouse_qty",
+			"label": "Source Warehouse Qty",
+			"fieldtype": "Float",
+			"insert_after": "from_warehouse",
+			"read_only": 1,
+			"no_copy": 1,
+			"in_list_view": 1,
+			"allow_on_submit": 1,
+		},
+		{
+			"fieldname": "custom_target_warehouse_qty",
+			"label": "Target Warehouse Qty",
+			"fieldtype": "Float",
+			"insert_after": "warehouse",
+			"read_only": 1,
+			"no_copy": 1,
+			"in_list_view": 1,
+			"allow_on_submit": 1,
+		},
+	],
 	"Sales Invoice": [
 		{
 			# Data entry: one Link instead of opening the Sales Team table and
@@ -316,6 +362,22 @@ CUSTOM_FIELDS = {
 		},
 	],
 }
+
+# Per-row Price List override (public/js/sales_invoice_row_price_list.js). Merged
+# in rather than written inline because Quotation Item already has an entry above.
+for _dt in ("Sales Invoice Item", "Quotation Item", "Sales Order Item", "Delivery Note Item", "Purchase Invoice Item"):
+	CUSTOM_FIELDS.setdefault(_dt, []).append(
+		{
+			"fieldname": "custom_price_list",
+			"label": "Price List",
+			"fieldtype": "Link",
+			"options": "Price List",
+			"insert_after": "item_code",
+			"in_list_view": 1,
+			"columns": 2,
+			"description": "Overrides the document's Price List for this row only. Leave blank to use the document's Price List.",
+		}
+	)
 
 TEMPORARY_ITEM_SERIES = "TM-.#####"
 

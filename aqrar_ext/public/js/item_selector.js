@@ -148,8 +148,8 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
     _resolve_warehouse(callback) {
         var me = this;
         var existing_items = cur_frm.doc[me.target.df.fieldname] || [];
-        var first_item_wh  = (existing_items.find(function(d) { return d.warehouse; }) || {}).warehouse || "";
-        var warehouse = cur_frm.doc.set_warehouse || cur_frm.doc.set_source_warehouse || first_item_wh || "";
+        var first_item_wh  = (existing_items.find(function(d) { return d.warehouse || d.s_warehouse; }) || {}).warehouse || (existing_items.find(function(d) { return d.s_warehouse; }) || {}).s_warehouse || "";
+        var warehouse = cur_frm.doc.set_warehouse || cur_frm.doc.set_source_warehouse || cur_frm.doc.set_from_warehouse || cur_frm.doc.from_warehouse || first_item_wh || "";
 
         if (warehouse) {
             callback(warehouse);

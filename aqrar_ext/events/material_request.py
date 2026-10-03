@@ -46,6 +46,17 @@ def validate_branch_user(doc, method=None):
 	)
 
 
+@frappe.whitelist()
+def get_warehouse_qty(item_code, warehouse, transaction_date=None):
+	"""Stock balance of an item in a warehouse as of the transaction date."""
+	if not item_code or not warehouse:
+		return 0
+
+	from erpnext.stock.utils import get_stock_balance
+
+	return flt(get_stock_balance(item_code, warehouse, transaction_date or frappe.utils.nowdate()))
+
+
 def _get_material_request(mr_name):
 	if not mr_name:
 		frappe.throw(_("Material Request is required"))

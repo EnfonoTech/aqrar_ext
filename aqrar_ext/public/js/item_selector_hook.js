@@ -1,5 +1,6 @@
 // aqrar_ext: Wire ItemMultiSelector into Sales Invoice, Quotation, Custom Quote, Sales Order,
-// Delivery Note, Purchase Invoice, Purchase Order, Purchase Receipt
+// Delivery Note, Purchase Invoice, Purchase Order, Purchase Receipt,
+// Material Request, Stock Entry
 
 var doctypes_with_items = [
     "Sales Invoice",
@@ -10,6 +11,8 @@ var doctypes_with_items = [
     "Delivery Note",
     "Purchase Order",
     "Purchase Receipt",
+    "Material Request",
+    "Stock Entry",
 ];
 
 doctypes_with_items.forEach(function (doctype) {
