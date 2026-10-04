@@ -114,9 +114,15 @@ _LAST_PURCHASE_PRICE_HOOK = "aqrar_ext.aqrar_ext.utils.last_price.update_last_pu
 # Standard Selling Price column on Purchase Invoice: written to Item Price on submit.
 _STANDARD_SELLING_HOOK = "aqrar_ext.aqrar_ext.utils.selling_price.update_standard_selling_prices"
 
+# Purchase Invoice -> auto Purchase Receipt (GRN): the invoice never moves stock,
+# the receipt created on submit does. See utils/auto_grn.py.
+_AUTO_GRN_NO_UPDATE_STOCK_HOOK = "aqrar_ext.aqrar_ext.utils.auto_grn.force_no_update_stock"
+_AUTO_GRN_CREATE_HOOK = "aqrar_ext.aqrar_ext.utils.auto_grn.create_auto_grn"
+_AUTO_GRN_CANCEL_HOOK = "aqrar_ext.aqrar_ext.utils.auto_grn.cancel_auto_grn"
+
 doc_events = {
 	"Purchase Invoice": {
-		"before_validate": [_RETURN_QTY_HOOK, _RETURN_UOM_HOOK],
+		"before_validate": [_AUTO_GRN_NO_UPDATE_STOCK_HOOK, _RETURN_QTY_HOOK, _RETURN_UOM_HOOK],
 		"validate": _COST_CENTER_HOOK,
 		"on_submit": [_LAST_PURCHASE_PRICE_HOOK, _STANDARD_SELLING_HOOK],
 	},

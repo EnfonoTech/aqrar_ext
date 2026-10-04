@@ -50,3 +50,16 @@ def get_grn_date_for(pi):
 		start or DEFAULT_START_DATE,
 		DEFAULT_BACKDATE_DAYS if days is None else days,
 	)
+
+
+def force_no_update_stock(doc, method=None):
+	"""A PI with stock items must not move stock itself; the auto GRN does.
+
+	before_validate, not validate: ERPNext's validate derives each row's expense
+	account from ``update_stock`` (Stock In Hand vs Stock Received But Not Billed),
+	so it must already be off when that runs.
+	"""
+	if not is_enabled() or not cint(doc.get("update_stock")):
+		return
+	if doc.get_stock_items():
+		doc.update_stock = 0
