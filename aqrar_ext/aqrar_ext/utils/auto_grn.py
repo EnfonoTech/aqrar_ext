@@ -35,3 +35,18 @@ def get_grn_posting_date(pi_posting_date, today_date, start_date, backdate_days)
 	if getdate(today_date) < getdate(add_days(start, days)):
 		return start
 	return getdate(add_days(getdate(pi_posting_date), -days))
+
+
+def is_enabled():
+	return cint(frappe.db.get_single_value("Aqrar Settings", "auto_grn_enabled"))
+
+
+def get_grn_date_for(pi):
+	start = frappe.db.get_single_value("Aqrar Settings", "auto_grn_system_start_date")
+	days = frappe.db.get_single_value("Aqrar Settings", "auto_grn_backdate_days")
+	return get_grn_posting_date(
+		pi.posting_date,
+		today(),
+		start or DEFAULT_START_DATE,
+		DEFAULT_BACKDATE_DAYS if days is None else days,
+	)

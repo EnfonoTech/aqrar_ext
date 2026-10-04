@@ -494,6 +494,23 @@ CUSTOM_FIELDS.setdefault("Purchase Invoice Item", []).append(
 	}
 )
 
+# Purchase Receipt: the Purchase Invoice that auto-created it
+# (utils/auto_grn.py). Read-only: it is system bookkeeping, and cancel cascades
+# key on it.
+CUSTOM_FIELDS.setdefault("Purchase Receipt", []).append(
+	{
+		"fieldname": "custom_auto_grn_invoice",
+		"label": "Auto GRN From Invoice",
+		"fieldtype": "Link",
+		"options": "Purchase Invoice",
+		"insert_after": "supplier_delivery_note",
+		"read_only": 1,
+		"no_copy": 1,
+		"print_hide": 1,
+		"search_index": 1,
+	}
+)
+
 for _dt in _RETURN_QTY_DOCTYPES:
 	CUSTOM_FIELDS.setdefault(_dt, []).extend(dict(field) for field in _RETURN_QTY_FIELDS)
 
