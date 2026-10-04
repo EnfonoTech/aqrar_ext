@@ -63,3 +63,65 @@ def force_no_update_stock(doc, method=None):
 		return
 	if doc.get_stock_items():
 		doc.update_stock = 0
+
+
+def create_auto_grn(doc, method=None):
+	"""on_submit: book the PI's stock through a Purchase Receipt (or return PR)."""
+	if not is_enabled():
+		return
+	if cint(doc.get("is_return")):
+		_create_return_grn(doc)
+	else:
+		_create_forward_grn(doc)
+
+
+def _stamp(pr, pi):
+	"""Backdate the receipt, tag it with its source invoice."""
+	pr.set_posting_time = 1
+	pr.posting_date = get_grn_date_for(pi)
+	pr.posting_time = GRN_POSTING_TIME
+	pr.set(MARKER_FIELD, pi.name)
+	pr.remarks = _("Auto-created from Purchase Invoice {0}").format(pi.name)
+
+
+def _create_forward_grn(pi):
+	from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import make_purchase_receipt
+
+	stock_items = set(pi.get_stock_items())
+	rows = [r for r in pi.items if r.item_code in stock_items and not r.pr_detail]
+	if not rows:
+		return
+
+	# make_purchase_receipt treats an empty filter as "every row", so never call it
+	# with none (guarded above).
+	pr = make_purchase_receipt(pi.name, args={"filtered_children": [r.name for r in rows]})
+	if not pr.get("items"):
+		return
+
+	_stamp(pr, pi)
+	pr.insert()
+	pr.submit()
+	_link_rows(pi, pr)
+
+
+def _link_rows(pi, pr):
+	"""Point the PI rows at the receipt and refresh the receipt's billing status.
+
+	Done after submit because the mapper needs a submitted PI. The PI's GL was
+	already posted against Stock Received But Not Billed, which is the account the
+	receipt credits, so the link changes bookkeeping, not ledger balances.
+	"""
+	by_pi_row = {item.purchase_invoice_item: item for item in pr.items}
+	for row in pi.items:
+		pr_item = by_pi_row.get(row.name)
+		if not pr_item:
+			continue
+		values = {"purchase_receipt": pr.name, "pr_detail": pr_item.name}
+		frappe.db.set_value("Purchase Invoice Item", row.name, values, update_modified=False)
+		row.update(values)
+
+	pi.update_billing_status_in_pr(update_modified=False)
+
+
+def _create_return_grn(pi):
+	pass  # Task 6
