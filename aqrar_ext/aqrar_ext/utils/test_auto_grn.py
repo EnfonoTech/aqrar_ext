@@ -245,3 +245,42 @@ class TestCreateAutoGrn(AutoGrnTestCase):
 		self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "docstatus"), 0)
 		self.assertEqual(frappe.get_all("Purchase Receipt", filters={MARKER: pi.name}), [])
 		self.assertFalse(frappe.db.exists("GL Entry", {"voucher_no": pi.name, "is_cancelled": 0}))
+
+
+class TestReturnGrn(AutoGrnTestCase):
+	def make_return(self, original, qty):
+		from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+		ret = make_return_doc("Purchase Invoice", original.name)
+		ret.items[0].qty = -qty
+		ret.items[0].received_qty = -qty
+		ret.items[0].stock_qty = -qty
+		ret.insert()
+		ret.submit()
+		return ret
+
+	def test_return_pi_creates_return_receipt(self):
+		original = self.make_pi(qty=10)
+		original_pr = linked_receipts(original.name)[0].name
+		ret = self.make_return(original, qty=3)
+		prs = linked_receipts(ret.name)
+		self.assertEqual(len(prs), 1)
+		pr = frappe.get_doc("Purchase Receipt", prs[0].name)
+		self.assertEqual(pr.is_return, 1)
+		self.assertEqual(pr.return_against, original_pr)
+		self.assertEqual(pr.items[0].qty, -3)
+
+	def test_return_pi_without_auto_grn_original_is_skipped(self):
+		self.set_rule(enabled=0)
+		original = self.make_pi(update_stock=1, qty=10)
+		self.set_rule(enabled=1)
+		ret = self.make_return(original, qty=3)
+		self.assertEqual(linked_receipts(ret.name), [])
+		self.assertEqual(ret.docstatus, 1)
+
+	def test_return_cancel_cascades(self):
+		original = self.make_pi(qty=10)
+		ret = self.make_return(original, qty=3)
+		pr_name = linked_receipts(ret.name)[0].name
+		ret.cancel()
+		self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 2)

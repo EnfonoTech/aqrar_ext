@@ -124,4 +124,57 @@ def _link_rows(pi, pr):
 
 
 def _create_return_grn(pi):
-	pass  # Task 6
+	"""Return PR for a return PI.
+
+	ERPNext copies the original row's purchase_receipt / pr_detail onto each return
+	row, so rows are grouped by the original receipt. Only receipts we created
+	(carrying MARKER_FIELD) are returned automatically: a receipt entered by hand
+	may already have its own return, and a second one would double the stock-out.
+	"""
+	from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+	if not pi.get("return_against"):
+		return
+	if frappe.db.exists("Purchase Receipt", {MARKER_FIELD: pi.name, "docstatus": 1}):
+		return
+
+	stock_items = set(pi.get_stock_items())
+	wanted = {}
+	skipped = False
+	for row in pi.items:
+		if row.item_code not in stock_items:
+			continue
+		if (
+			row.purchase_receipt
+			and row.pr_detail
+			and frappe.db.get_value("Purchase Receipt", row.purchase_receipt, MARKER_FIELD)
+		):
+			wanted.setdefault(row.purchase_receipt, {})[row.pr_detail] = row
+		else:
+			skipped = True
+
+	if skipped:
+		frappe.msgprint(
+			_(
+				"Some stock rows were not returned automatically because their original "
+				"Purchase Receipt was not created by Auto GRN. Return that stock manually."
+			),
+			indicator="orange",
+			alert=True,
+		)
+
+	for pr_name, rows in wanted.items():
+		ret = make_return_doc("Purchase Receipt", pr_name)
+		ret.items = [i for i in ret.items if i.purchase_receipt_item in rows]
+		for item in ret.items:
+			src = rows[item.purchase_receipt_item]
+			item.qty = -abs(flt(src.qty))
+			item.received_qty = item.qty
+			item.rejected_qty = 0
+			item.stock_qty = -abs(flt(src.stock_qty))
+			item.received_stock_qty = item.stock_qty
+		if not ret.items:
+			continue
+		_stamp(ret, pi)
+		ret.insert()
+		ret.submit()
