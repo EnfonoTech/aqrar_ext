@@ -26,7 +26,7 @@ and are registered as `_X_HOOK` constants in `hooks.py`; settings live in the
 | Piece | Where |
 |---|---|
 | Hook logic | new `aqrar_ext/aqrar_ext/utils/auto_grn.py` |
-| Registration | `hooks.py` → `doc_events["Purchase Invoice"]`: `validate` += `force_no_update_stock`; new `before_submit` = `create_auto_grn`; new `on_cancel` = `cancel_auto_grn` (cancel cascade) |
+| Registration | `hooks.py` → `doc_events["Purchase Invoice"]`: `before_validate` += `force_no_update_stock`; `on_submit` += `create_auto_grn`; `on_cancel` = `cancel_auto_grn` |
 | Settings | `Aqrar Settings` += `auto_grn_enabled` (Check, default 0), `auto_grn_system_start_date` (Date, 2026-09-01), `auto_grn_backdate_days` (Int, 90) |
 | Marker | Custom Field `Purchase Receipt-custom_auto_grn_invoice` (Link → Purchase Invoice, read-only, no_copy) via `setup_data.CUSTOM_FIELDS` |
 | Tests | `aqrar_ext/aqrar_ext/utils/test_auto_grn.py` (pure date fn) + integration tests |
@@ -34,22 +34,22 @@ and are registered as `_X_HOOK` constants in `hooks.py`; settings live in the
 Feature ships **disabled**; enable per site after UAT.
 
 ## Flow
-**validate** — if enabled and PI has any stock item row: `doc.update_stock = 0`.
+**before_validate** — if enabled and the PI has any stock item row: `doc.update_stock = 0`.
+Must be before ERPNext's own validate, which derives each row's expense account from `update_stock`.
 
-**before_submit** — skip if disabled. Select rows: `is_stock_item` and no `pr_detail`.
-No rows → return.
-1. Build PR with ERPNext `make_purchase_receipt(PI.name)` mapper, restricted to selected rows
-   (carries supplier, qty, rate, UOM, taxes, cost center, project; `warehouse` = PI row
-   warehouse = Accepted Warehouse; `received_qty = qty`).
-2. `set_posting_time = 1`, `posting_date = get_grn_posting_date(today)`, set marker field.
-3. `insert()` + `submit()` under the submitting user's permissions (no `ignore_permissions`).
-4. Write `purchase_receipt` / `pr_detail` onto the matching PI rows in memory so PI's own GL
-   clears Stock Received But Not Billed and PR billed-amount updates. Without this the PI
-   would book stock directly and leave GRNI dangling.
+**on_submit** (runs after ERPNext's own on_submit, inside the same transaction) — skip if
+disabled. Select rows: stock item and no `pr_detail`. No rows → return.
+1. `make_purchase_receipt(PI.name, args={"filtered_children": [row names]})` — the stock mapper;
+   it requires the PI to be docstatus 1, which it is by now.
+2. Set `set_posting_time = 1`, `posting_date` per the date rule, `posting_time = 00:00:01`,
+   marker field. `insert()` + `submit()` under the user's own permissions.
+3. Link: write `purchase_receipt` / `pr_detail` onto the PI rows (`frappe.db.set_value` + in
+   memory) and call `pi.update_billing_status_in_pr()` so the PR shows as billed.
+Accounting: PI's own GL (posted first) debits Stock Received But Not Billed because the rows had
+no PR yet; the PR then credits it and debits Stock In Hand. ERPNext supports this order.
+Any exception rolls the whole PI submit back.
 
-**Return PI** (`is_return`, `return_against`): per original PR referenced by the original PI
-rows, create a return PR via ERPNext `make_return_doc("Purchase Receipt", …)` with the
-returned qty, same date rule, link onto return PI rows. Original PI with no PR (pre-feature
+**Return PI** (`is_return`, `return_against`): Return PI rows already carry the original row's `purchase_receipt`/`pr_detail` (copied by ERPNext). Group the stock rows by that original PR; only when the original PR carries our marker, build a return PR with `make_return_doc("Purchase Receipt", pr)` limited to those rows and the returned qty. Otherwise skip with a message. Original PI with no PR (pre-feature
 invoice) → skip rows with a message, do not fail. Existing PR hooks (`flip_return_quantities`,
 `apply_uom_aware_returns`) run on the generated return PR; tests must cover this.
 
