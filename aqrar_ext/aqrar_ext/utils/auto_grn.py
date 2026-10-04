@@ -8,7 +8,7 @@ then ``backdate_days`` before the invoice's posting date.
 Hooks (registered in hooks.py under doc_events["Purchase Invoice"]):
   before_validate -> force_no_update_stock
   on_submit       -> create_auto_grn
-  on_cancel       -> cancel_auto_grn
+  before_cancel   -> cancel_auto_grn
 """
 
 import frappe
@@ -208,3 +208,25 @@ def _create_return_grn(pi):
 			continue
 		_stamp(ret, pi)
 		_insert_and_submit(ret, pi)
+
+
+def cancel_auto_grn(doc, method=None):
+	"""before_cancel: cancel the receipts this invoice created.
+
+	before_cancel, not on_cancel: Frappe's "is this document linked" check runs
+	right after the invoice is saved as cancelled and before on_cancel, and it
+	counts the still-submitted receipt (whose rows point back at the invoice), so
+	the invoice's own cancel would be refused first. The receipt is cancelled with
+	``ignore_links`` because the invoice that links to it is being cancelled in the
+	same transaction.
+
+	Runs whether or not the setting is still on: a marker means we created it. The
+	app's Purchase Receipt before_cancel guard still applies, so if the received
+	stock was already sold the whole invoice cancel is blocked.
+	"""
+	for name in frappe.get_all(
+		"Purchase Receipt", filters={MARKER_FIELD: doc.name, "docstatus": 1}, pluck="name"
+	):
+		pr = frappe.get_doc("Purchase Receipt", name)
+		pr.flags.ignore_links = True
+		pr.cancel()

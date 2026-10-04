@@ -432,3 +432,61 @@ class TestReturnGrn(AutoGrnTestCase):
 		pr_name = linked_receipts(ret.name)[0].name
 		ret.cancel()
 		self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 2)
+
+
+class TestCancelCascade(AutoGrnTestCase):
+	def test_cancel_pi_cancels_auto_receipt(self):
+		pi = self.make_pi()
+		pr_name = linked_receipts(pi.name)[0].name
+		pi.reload()  # the receipt submit touched the invoice after our copy was loaded
+		pi.cancel()
+		self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 2)
+
+	def test_cancel_blocked_when_stock_already_sold(self):
+		from erpnext.stock.doctype.delivery_note.test_delivery_note import create_delivery_note
+
+		# The sale's stock ledger entries would make every later test's receipt look
+		# "already issued" (the guard is per item + warehouse), and FrappeTestCase only
+		# rolls back per class, so undo the whole test to this savepoint.
+		frappe.db.savepoint("auto_grn_sold")
+		try:
+			pi = self.make_pi(qty=10)
+			pr_name = linked_receipts(pi.name)[0].name
+			pi.reload()  # the receipt submit touched the invoice after our copy was loaded
+			create_delivery_note(
+				item_code=STOCK_ITEM,
+				qty=10,
+				warehouse=WAREHOUSE,
+				company=COMPANY,
+				cost_center="_Test Cost Center - _TC",
+				expense_account="_Test Account Cost for Goods Sold - _TC",
+			)
+			# Document.cancel is not atomic on its own; a web request rolls the whole
+			# transaction back on error. Emulate that with a savepoint.
+			frappe.db.savepoint("auto_grn_cancel")
+			with self.assertRaisesRegex(frappe.ValidationError, "already been issued"):
+				try:
+					pi.cancel()
+				except Exception:
+					frappe.db.rollback(save_point="auto_grn_cancel")
+					raise
+			self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "docstatus"), 1)
+			self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 1)
+		finally:
+			frappe.db.rollback(save_point="auto_grn_sold")
+
+	def test_cancel_cascades_even_when_feature_now_disabled(self):
+		pi = self.make_pi()
+		pr_name = linked_receipts(pi.name)[0].name
+		self.set_rule(enabled=0)
+		pi.reload()  # the receipt submit touched the invoice after our copy was loaded
+		pi.cancel()
+		self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 2)
+
+	def test_cancel_plain_pi_without_auto_receipt(self):
+		self.set_rule(enabled=0)
+		pi = self.make_pi(update_stock=1)
+		self.assertEqual(linked_receipts(pi.name), [])
+		pi.reload()  # the receipt submit touched the invoice after our copy was loaded
+		pi.cancel()
+		self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "docstatus"), 2)

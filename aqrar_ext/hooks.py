@@ -125,6 +125,8 @@ doc_events = {
 		"before_validate": [_AUTO_GRN_NO_UPDATE_STOCK_HOOK, _RETURN_QTY_HOOK, _RETURN_UOM_HOOK],
 		"validate": _COST_CENTER_HOOK,
 		"on_submit": [_LAST_PURCHASE_PRICE_HOOK, _STANDARD_SELLING_HOOK, _AUTO_GRN_CREATE_HOOK],
+		# before_cancel: Frappe's linked-document check runs before on_cancel.
+		"before_cancel": _AUTO_GRN_CANCEL_HOOK,
 	},
 	"Delivery Note": {
 		# set_valuation_rate first, so a return row's rate still ends up correct:
