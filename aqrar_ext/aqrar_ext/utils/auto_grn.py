@@ -61,6 +61,10 @@ def force_no_update_stock(doc, method=None):
 	"""
 	if not is_enabled() or not cint(doc.get("update_stock")):
 		return
+	# A standalone debit note (no return_against) has no receipt to return
+	# through, so it must take the stock out itself.
+	if cint(doc.get("is_return")) and not doc.get("return_against"):
+		return
 	# A return against an invoice that moved stock itself (submitted before the
 	# feature) has no auto receipt to return through, so it must move the stock
 	# back itself too.
@@ -123,29 +127,34 @@ def _create_forward_grn(pi):
 	if not pr.get("items"):
 		return
 
-	_carry_invoice_discount(pr, pi, rows)
+	by_name = {r.name: r for r in rows}
+	expected = _carry_invoice_discount(pr, [(i, by_name[i.purchase_invoice_item]) for i in pr.items])
 	_stamp(pr, pi)
-	_insert_and_submit(pr, pi)
+	_insert_and_submit(pr, pi, expected)
 	_link_rows(pi, pr)
 
 
-def _carry_invoice_discount(pr, pi, rows):
+def _carry_invoice_discount(pr, pairs):
 	"""Give the receipt exactly the header discount its rows carry on the invoice.
 
-	The mapper copies the invoice's whole header discount, but the receipt holds
-	only the stock rows; on a mixed invoice it would then take the non-stock rows'
-	share too and credit Stock Received But Not Billed for less than the invoice
-	debited. Each invoice row's share is ``amount - net_amount`` (what ERPNext
-	distributed onto it), prorated when the receipt takes only part of the row.
-	It is applied as a plain Net Total discount, so the receipt spreads it over
+	``pairs`` is ``[(receipt row, invoice row)]``. Returns the receipt net total
+	(company currency) those invoice rows booked, for :func:`_check_net_total`.
+
+	The mappers copy the invoice's whole header discount, but the receipt holds
+	only the stock rows: on a mixed invoice it would take the non-stock rows'
+	share too, and Stock Received But Not Billed would not net to zero. Each
+	invoice row's share is its ``distributed_discount_amount`` (what ERPNext's
+	apply_discount_amount spread onto it; not ``amount - net_amount``, which also
+	holds tax-inclusive VAT), prorated when the receipt takes part of the row.
+	On a return invoice that field already carries ERPNext's own split (a partial
+	return keeps the whole discount), so the return receipt matches it too. The
+	share goes on as a plain Net Total discount, which the receipt spreads over
 	the same rows in the same proportions.
 	"""
-	by_name = {r.name: r for r in rows}
 	share = expected = 0.0
-	for item in pr.items:
-		src = by_name[item.purchase_invoice_item]
+	for item, src in pairs:
 		part = flt(item.qty) / flt(src.qty) if flt(src.qty) else 0
-		share += (flt(src.amount) - flt(src.net_amount)) * part
+		share += flt(src.distributed_discount_amount) * part
 		expected += flt(src.base_net_amount) * part
 
 	if pr.meta.has_field("is_cash_or_non_trade_discount"):
@@ -153,30 +162,50 @@ def _carry_invoice_discount(pr, pi, rows):
 	pr.additional_discount_percentage = 0
 	pr.apply_discount_on = "Net Total"
 	pr.discount_amount = flt(share, pr.precision("discount_amount"))
-	pr.calculate_taxes_and_totals()
+	return expected
 
-	# Rounding can differ by at most a cent per row (prorated rows); anything more
-	# means the receipt would not clear what the invoice booked.
+
+def _check_net_total(pr, pi, expected):
+	"""Stop when the saved receipt would not clear what the invoice booked.
+
+	Legitimate differences are rounding only: at most one unit of the currency's
+	last digit per row (row-level rounding of net and company-currency amounts).
+	Above that it is logged for diagnosis; the submit is refused only well above
+	it (10x), so a rounding quirk never blocks an invoice while a real
+	misallocation (whole discounts, tax treated as discount) still does.
+	"""
 	precision = pr.precision("base_net_total")
 	actual = sum(flt(item.base_net_amount) for item in pr.items)
-	if abs(flt(actual - expected, precision)) > len(pr.items) * 10**-precision:
-		frappe.throw(
-			_(
-				"Auto GRN for Purchase Invoice {0}: receipt net amount {1} does not match the "
-				"invoice's stock rows ({2})"
-			).format(pi.name, flt(actual, precision), flt(expected, precision))
-		)
+	diff = abs(flt(actual - flt(expected), precision))
+	tolerance = len(pr.items) * 10**-precision
+	if diff <= tolerance:
+		return
+
+	message = _(
+		"Auto GRN for Purchase Invoice {0}: receipt net amount {1} does not match the invoice's stock rows ({2})"
+	).format(pi.name, flt(actual, precision), flt(expected, precision))
+	if diff <= 10 * tolerance:
+		frappe.log_error(message, "Auto GRN rounding difference")
+		return
+	frappe.throw(message)
 
 
-def _insert_and_submit(pr, pi):
+def _insert_and_submit(pr, pi, expected_net=None):
 	"""Save and submit the receipt; say which invoice it was for if that fails.
 
 	Re-raised with the original exception class so callers (and the request's
-	rollback) see the same error type.
+	rollback) see the same error type. The net-total check runs after insert, when
+	the receipt's own hooks (e.g. UOM-aware return rates) have set its amounts.
 	"""
+	_with_context(pr.insert, pi)
+	if expected_net is not None:
+		_check_net_total(pr, pi, expected_net)
+	_with_context(pr.submit, pi)
+
+
+def _with_context(action, pi):
 	try:
-		pr.insert()
-		pr.submit()
+		action()
 	except frappe.ValidationError as e:
 		frappe.throw(
 			_("Auto GRN for Purchase Invoice {0} could not be created: {1}").format(pi.name, str(e)),
@@ -220,6 +249,10 @@ def _create_return_grn(pi):
 
 	if not pi.get("return_against"):
 		return
+	# Kept update_stock (original moved stock itself): this invoice moves the
+	# stock back, so there is nothing to return through a receipt.
+	if cint(pi.get("update_stock")):
+		return
 	if frappe.db.exists("Purchase Receipt", {MARKER_FIELD: pi.name, "docstatus": 1}):
 		return
 
@@ -250,6 +283,7 @@ def _create_return_grn(pi):
 			alert=True,
 		)
 
+	loss_account = frappe.get_cached_value("Company", pi.company, "default_expense_account")
 	for pr_name, rows in wanted.items():
 		ret = make_return_doc("Purchase Receipt", pr_name)
 		ret.items = [i for i in ret.items if i.purchase_receipt_item in rows]
@@ -265,11 +299,21 @@ def _create_return_grn(pi):
 			item.rejected_qty = 0
 			item.stock_qty = -abs(flt(src.stock_qty))
 			item.received_stock_qty = item.stock_qty
+			# A return receipt books "divisional loss" (its net amount vs the stock
+			# value it takes out at the original rate) to the row's expense account,
+			# which the copied row has as Stock Received But Not Billed. It arises when
+			# ERPNext gives the return invoice a different discount share than the
+			# original row had (e.g. the whole discount on a partial return); left in
+			# SRBNB it never clears. Book it where ERPNext books a receipt's divisional
+			# loss: the company's default expense account.
+			if loss_account:
+				item.expense_account = loss_account
 		if not ret.items:
 			continue
+		expected = _carry_invoice_discount(ret, [(i, rows[i.purchase_receipt_item]) for i in ret.items])
 		_stamp(ret, pi)
 		_not_before_original(ret, pr_name)
-		_insert_and_submit(ret, pi)
+		_insert_and_submit(ret, pi, expected)
 
 
 def _not_before_original(ret, pr_name):

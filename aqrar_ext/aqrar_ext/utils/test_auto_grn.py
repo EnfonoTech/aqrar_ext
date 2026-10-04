@@ -406,6 +406,119 @@ class TestCreateAutoGrn(AutoGrnTestCase):
 		pi.submit()
 		self.assert_discount_nets_to_zero(pi)
 
+	def assert_srbnb_balanced(self, pi):
+		"""Submitted, one receipt, both vouchers post to SRBNB and it nets to zero."""
+		self.assertEqual(pi.docstatus, 1)
+		prs = [r.name for r in linked_receipts(pi.name)]
+		self.assertEqual(len(prs), 1)
+		account = frappe.get_cached_value("Company", COMPANY, "stock_received_but_not_billed")
+		for voucher in (pi.name, prs[0]):
+			self.assertTrue(
+				frappe.db.exists("GL Entry", {"account": account, "voucher_no": voucher, "is_cancelled": 0})
+			)
+		self.assertEqual(flt(srbnb_net(pi.name, prs[0]), 2), 0)
+
+	def test_tax_inclusive_invoice(self):
+		# 115 incl. 15% VAT -> net 100/unit; the tax is not a discount.
+		pi = self.make_pi(qty=5, rate=115, do_not_save=True)
+		add_inclusive_vat(pi)
+		pi.insert()
+		pi.submit()
+		self.assertEqual(flt(pi.items[0].base_net_amount), 500)
+		self.assert_srbnb_balanced(pi)
+
+	def test_tax_inclusive_invoice_with_header_discount(self):
+		pi = self.make_pi(qty=5, rate=115, do_not_save=True)
+		add_inclusive_vat(pi)
+		pi.apply_discount_on = "Net Total"
+		pi.discount_amount = 31
+		pi.insert()
+		pi.submit()
+		self.assert_srbnb_balanced(pi)
+
+	def test_tax_inclusive_mixed_invoice_with_header_discount(self):
+		pi = self.make_pi(qty=5, rate=115, do_not_save=True)
+		add_row(pi, NON_STOCK_ITEM, qty=2, rate=30)
+		add_inclusive_vat(pi)
+		pi.apply_discount_on = "Net Total"
+		pi.discount_amount = 31
+		pi.insert()
+		pi.submit()
+		self.assert_srbnb_balanced(pi)
+
+	def test_grand_total_discount_on_mixed_invoice(self):
+		pi = self.make_pi(qty=5, rate=50, do_not_save=True)
+		add_row(pi, NON_STOCK_ITEM, qty=2, rate=30)
+		pi.append(
+			"taxes",
+			{
+				"charge_type": "On Net Total",
+				"account_head": "_Test Account VAT - _TC",
+				"cost_center": "_Test Cost Center - _TC",
+				"description": "VAT",
+				"rate": 15,
+				"category": "Total",
+				"add_deduct_tax": "Add",
+			},
+		)
+		pi.apply_discount_on = "Grand Total"
+		pi.discount_amount = 31
+		pi.insert()
+		pi.submit()
+		self.assert_srbnb_balanced(pi)
+
+	def test_two_stock_rows_with_percentage_discount(self):
+		pi = self.make_pi(qty=3, rate=33.33, do_not_save=True)
+		add_row(pi, "_Test Item Home Desktop 100", qty=7, rate=11.11)
+		add_row(pi, NON_STOCK_ITEM, qty=1, rate=17.77)
+		pi.apply_discount_on = "Net Total"
+		pi.additional_discount_percentage = 7.77
+		pi.insert()
+		pi.submit()
+		self.assert_srbnb_balanced(pi)
+
+	def test_foreign_currency_invoice_with_header_discount(self):
+		pi = self.make_pi(
+			qty=7,
+			rate=13.37,
+			do_not_save=True,
+			supplier="_Test Supplier USD",
+			currency="USD",
+			conversion_rate=3.7513,
+		)
+		pi.credit_to = "_Test Payable USD - _TC"
+		add_row(pi, NON_STOCK_ITEM, qty=3, rate=9.99)
+		pi.apply_discount_on = "Net Total"
+		pi.discount_amount = 4.44
+		pi.insert()
+		pi.submit()
+		self.assert_srbnb_balanced(pi)
+
+	def test_standalone_debit_note_moves_stock_itself(self):
+		# A return with no return_against has no receipt to return through, so it
+		# keeps update_stock and takes the stock out itself.
+		self.make_pi(qty=10)
+		ret = self.make_pi(qty=-2, is_return=1, update_stock=1)
+		self.assertEqual(ret.update_stock, 1)
+		self.assertEqual(sle_qty(ret.name), -2)
+		self.assertEqual(linked_receipts(ret.name), [])
+
+
+def add_inclusive_vat(pi):
+	pi.append(
+		"taxes",
+		{
+			"charge_type": "On Net Total",
+			"account_head": "_Test Account VAT - _TC",
+			"cost_center": "_Test Cost Center - _TC",
+			"description": "VAT",
+			"rate": 15,
+			"included_in_print_rate": 1,
+			"category": "Total",
+			"add_deduct_tax": "Add",
+		},
+	)
+
 
 def add_row(pi, item_code, qty, rate):
 	pi.append(
@@ -472,9 +585,12 @@ class TestReturnGrn(AutoGrnTestCase):
 		self.set_rule(enabled=0)
 		original = self.make_pi(update_stock=1, qty=10)
 		self.set_rule(enabled=1)
+		frappe.local.message_log = []
 		ret = self.make_return(original, qty=3)
 		self.assertEqual(linked_receipts(ret.name), [])
 		self.assertEqual(ret.docstatus, 1)
+		# No "return that stock manually" alert: the return moves the stock itself.
+		self.assertFalse([m for m in frappe.local.message_log if "manually" in str(m)])
 		# The original moved stock itself, so its return must too: forcing
 		# update_stock off here would leave the 3 units in stock for good.
 		self.assertEqual(ret.update_stock, 1)
@@ -512,6 +628,46 @@ class TestReturnGrn(AutoGrnTestCase):
 		pr = frappe.get_doc("Purchase Receipt", linked_receipts(ret.name)[0].name)
 		self.assertEqual(sle_qty(pr.name), -3)
 		self.assertEqual(flt(pr.items[0].stock_qty), -3)
+		self.assertEqual(flt(pr.items[0].rate), 50)
+		original_pr = linked_receipts(original.name)[0].name
+		self.assertEqual(flt(srbnb_net(original.name, original_pr, ret.name, pr.name), 2), 0)
+
+	def assert_return_balanced(self, original, ret):
+		prs = [r.name for r in linked_receipts(original.name)] + [r.name for r in linked_receipts(ret.name)]
+		self.assertEqual(len(prs), 2)
+		self.assertEqual(flt(srbnb_net(original.name, ret.name, *prs), 2), 0)
+
+	def test_return_of_stock_row_from_discounted_mixed_invoice(self):
+		from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+		# Discount 31 over stock 250 + non-stock 60: the stock row carries 25.
+		original = self.make_pi(qty=5, rate=50, do_not_save=True)
+		add_row(original, NON_STOCK_ITEM, qty=2, rate=30)
+		original.apply_discount_on = "Net Total"
+		original.discount_amount = 31
+		original.insert()
+		original.submit()
+		ret = make_return_doc("Purchase Invoice", original.name)
+		ret.items = [r for r in ret.items if r.item_code == STOCK_ITEM]
+		ret.insert()
+		ret.submit()
+		self.assert_return_balanced(original, ret)
+
+	def test_partial_return_of_discounted_invoice(self):
+		from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+		# ERPNext copies the whole -50 discount onto a partial return invoice; the
+		# return receipt must match that invoice's net, not the proportional one.
+		original = self.make_pi(qty=10, rate=50, do_not_save=True)
+		original.apply_discount_on = "Net Total"
+		original.discount_amount = 50
+		original.insert()
+		original.submit()
+		ret = make_return_doc("Purchase Invoice", original.name)
+		ret.items[0].qty = ret.items[0].received_qty = -2
+		ret.insert()
+		ret.submit()
+		self.assert_return_balanced(original, ret)
 
 	def test_return_receipt_not_dated_before_original_receipt(self):
 		# Original receipt dated the system start (before the cutoff) ...
