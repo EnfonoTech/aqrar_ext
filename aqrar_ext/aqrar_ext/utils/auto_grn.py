@@ -81,7 +81,8 @@ def _stamp(pr, pi):
 	pr.posting_date = get_grn_date_for(pi)
 	pr.posting_time = GRN_POSTING_TIME
 	pr.set(MARKER_FIELD, pi.name)
-	pr.remarks = _("Auto-created from Purchase Invoice {0}").format(pi.name)
+	# Stored text, not UI text: keep it in one language for every reader.
+	pr.remarks = f"Auto-created from Purchase Invoice {pi.name}"
 
 
 def _create_forward_grn(pi):
@@ -92,6 +93,16 @@ def _create_forward_grn(pi):
 	if not rows:
 		return
 
+	# PI.validate already filled blank warehouses from the item / item group / brand
+	# defaults (the same chain the receipt would use), so a blank one here has none.
+	for row in rows:
+		if not (row.warehouse or pi.get("set_warehouse")):
+			frappe.throw(
+				_("Row {0}: Warehouse is required for stock item {1} to create the auto GRN").format(
+					row.idx, row.item_code
+				)
+			)
+
 	# make_purchase_receipt treats an empty filter as "every row", so never call it
 	# with none (guarded above).
 	pr = make_purchase_receipt(pi.name, args={"filtered_children": [r.name for r in rows]})
@@ -99,9 +110,24 @@ def _create_forward_grn(pi):
 		return
 
 	_stamp(pr, pi)
-	pr.insert()
-	pr.submit()
+	_insert_and_submit(pr, pi)
 	_link_rows(pi, pr)
+
+
+def _insert_and_submit(pr, pi):
+	"""Save and submit the receipt; say which invoice it was for if that fails.
+
+	Re-raised with the original exception class so callers (and the request's
+	rollback) see the same error type.
+	"""
+	try:
+		pr.insert()
+		pr.submit()
+	except frappe.ValidationError as e:
+		frappe.throw(
+			_("Auto GRN for Purchase Invoice {0} could not be created: {1}").format(pi.name, str(e)),
+			exc=type(e),
+		)
 
 
 def _link_rows(pi, pr):
@@ -114,7 +140,12 @@ def _link_rows(pi, pr):
 	by_pi_row = {item.purchase_invoice_item: item for item in pr.items}
 	for row in pi.items:
 		pr_item = by_pi_row.get(row.name)
-		if not pr_item:
+		# Link only rows the receipt took in full. A row partly received elsewhere
+		# (received_qty > 0) gets a smaller receipt row; linking it would bill the
+		# receipt for the whole invoiced qty and trip ERPNext's over-billing check.
+		# Left unlinked, the receipt still credits Stock Received But Not Billed for
+		# the qty it actually received.
+		if not pr_item or flt(pr_item.qty) != flt(row.qty):
 			continue
 		values = {"purchase_receipt": pr.name, "pr_detail": pr_item.name}
 		frappe.db.set_value("Purchase Invoice Item", row.name, values, update_modified=False)
@@ -176,5 +207,4 @@ def _create_return_grn(pi):
 		if not ret.items:
 			continue
 		_stamp(ret, pi)
-		ret.insert()
-		ret.submit()
+		_insert_and_submit(ret, pi)

@@ -6,9 +6,9 @@ from erpnext.stock.doctype.purchase_receipt.test_purchase_receipt import (
 )
 from erpnext.stock.doctype.stock_ledger_entry.stock_ledger_entry import StockFreezeError
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import getdate
+from frappe.utils import flt, getdate
 
-from aqrar_ext.aqrar_ext.utils.auto_grn import get_grn_posting_date
+from aqrar_ext.aqrar_ext.utils.auto_grn import MARKER_FIELD, get_grn_posting_date
 
 # Frappe loads test records for these before the module runs (ERPNext's own
 # Purchase Invoice tests need the same set).
@@ -51,12 +51,14 @@ class AutoGrnTestCase(FrappeTestCase):
 	"""Shared setup: perpetual inventory on, feature on, rule dates fixed."""
 
 	def setUp(self):
+		self._perpetual_inventory = frappe.db.get_value("Company", COMPANY, "enable_perpetual_inventory")
 		erpnext.set_perpetual_inventory(1, COMPANY)
 		self.ensure_stock_accounts()
 		self.set_rule(enabled=1, start="2026-09-01", days=90)
 
 	def tearDown(self):
-		erpnext.set_perpetual_inventory(0, COMPANY)
+		erpnext.set_perpetual_inventory(self._perpetual_inventory, COMPANY)
+		frappe.clear_document_cache("Company", COMPANY)
 
 	@staticmethod
 	def ensure_stock_accounts():
@@ -125,12 +127,9 @@ class TestForceNoUpdateStock(AutoGrnTestCase):
 def linked_receipts(pi_name):
 	return frappe.get_all(
 		"Purchase Receipt",
-		filters={MARKER: pi_name, "docstatus": 1},
+		filters={MARKER_FIELD: pi_name, "docstatus": 1},
 		fields=["name", "posting_date", "supplier"],
 	)
-
-
-MARKER = "custom_auto_grn_invoice"
 
 
 class TestCreateAutoGrn(AutoGrnTestCase):
@@ -145,7 +144,7 @@ class TestCreateAutoGrn(AutoGrnTestCase):
 		self.assertEqual(pr.items[0].rate, 50)
 
 	def test_receipt_dated_start_date_before_cutoff(self):
-		# `today` is the real date (>= 2026-10-04); pin the rule so cutoff is in the future
+		# Pin the rule so the cutoff is in the future.
 		self.set_rule(start=frappe.utils.today(), days=90)
 		pi = self.make_pi(posting_date=frappe.utils.today())
 		pr = frappe.get_doc("Purchase Receipt", linked_receipts(pi.name)[0].name)
@@ -243,8 +242,157 @@ class TestCreateAutoGrn(AutoGrnTestCase):
 		finally:
 			frappe.db.set_single_value("Stock Settings", "stock_frozen_upto", None)
 		self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "docstatus"), 0)
-		self.assertEqual(frappe.get_all("Purchase Receipt", filters={MARKER: pi.name}), [])
+		self.assertEqual(frappe.get_all("Purchase Receipt", filters={MARKER_FIELD: pi.name}), [])
 		self.assertFalse(frappe.db.exists("GL Entry", {"voucher_no": pi.name, "is_cancelled": 0}))
+
+	def test_failure_message_names_the_invoice(self):
+		self.set_rule(start="2020-01-01", days=90)
+		frappe.db.set_single_value("Stock Settings", "stock_frozen_upto", "2026-12-31")
+		try:
+			pi = self.make_pi(posting_date="2026-10-15", do_not_submit=True)
+			with self.assertRaisesRegex(StockFreezeError, f"Auto GRN for Purchase Invoice {pi.name}"):
+				pi.submit()
+		finally:
+			frappe.db.set_single_value("Stock Settings", "stock_frozen_upto", None)
+
+	def test_stock_row_without_warehouse_uses_item_default(self):
+		# ERPNext's own set_missing_item_details fills a blank row warehouse from the
+		# Item / Item Group / Brand default (get_item_warehouse) when the PI is saved,
+		# the same chain the receipt would use.
+		pi = self.make_pi(do_not_save=True)
+		pi.items[0].warehouse = None
+		pi.insert()
+		pi.submit()
+		pr = frappe.get_doc("Purchase Receipt", linked_receipts(pi.name)[0].name)
+		self.assertEqual(pr.items[0].warehouse, WAREHOUSE)
+
+	def test_stock_row_without_any_warehouse_throws(self):
+		item_code = make_item_without_defaults()
+		pi = self.make_pi(item_code=item_code, do_not_save=True)
+		pi.items[0].warehouse = None
+		pi.insert()
+		self.assertFalse(pi.items[0].warehouse)
+		with self.assertRaisesRegex(frappe.ValidationError, "Warehouse is required for stock item"):
+			pi.submit()
+
+	def test_partially_received_row_is_not_linked(self):
+		# 2 of 5 already received elsewhere: the receipt takes 3, so linking the row
+		# (billed for 5) to it would over-bill the receipt.
+		pi = self.make_pi(qty=5, received_qty=2, rate=50)
+		pr = frappe.get_doc("Purchase Receipt", linked_receipts(pi.name)[0].name)
+		self.assertEqual(pr.items[0].qty, 3)
+		pi.reload()
+		self.assertFalse(pi.items[0].pr_detail)
+		self.assertFalse(pi.items[0].purchase_receipt)
+		self.assertLessEqual(flt(pr.per_billed), 100)
+
+	def test_mixed_stock_and_non_stock_invoice(self):
+		pi = self.make_pi(do_not_save=True)
+		add_row(pi, NON_STOCK_ITEM, qty=2, rate=30)
+		pi.insert()
+		pi.submit()
+		prs = linked_receipts(pi.name)
+		self.assertEqual(len(prs), 1)
+		pr = frappe.get_doc("Purchase Receipt", prs[0].name)
+		self.assertEqual([i.item_code for i in pr.items], [STOCK_ITEM])
+		pi.reload()
+		self.assertEqual(pi.items[0].pr_detail, pr.items[0].name)
+		self.assertFalse(pi.items[1].pr_detail)
+		self.assertFalse(pi.items[1].purchase_receipt)
+
+	def test_two_rows_of_same_item_link_to_distinct_receipt_rows(self):
+		pi = self.make_pi(qty=5, do_not_save=True)
+		add_row(pi, STOCK_ITEM, qty=3, rate=50)
+		pi.insert()
+		pi.submit()
+		pr = frappe.get_doc("Purchase Receipt", linked_receipts(pi.name)[0].name)
+		self.assertEqual(len(pr.items), 2)
+		pi.reload()
+		by_name = {i.name: i for i in pr.items}
+		self.assertNotEqual(pi.items[0].pr_detail, pi.items[1].pr_detail)
+		for row in pi.items:
+			self.assertEqual(by_name[row.pr_detail].qty, row.qty)
+			self.assertEqual(by_name[row.pr_detail].purchase_invoice_item, row.name)
+		self.assertEqual(pr.per_billed, 100)
+
+	def test_taxes_keep_stock_received_but_not_billed_at_zero(self):
+		pi = self.make_pi(qty=5, rate=50, do_not_save=True)
+		pi.append(
+			"taxes",
+			{
+				"category": "Total",
+				"add_deduct_tax": "Add",
+				"charge_type": "On Net Total",
+				"account_head": "_Test Account VAT - _TC",
+				"cost_center": "_Test Cost Center - _TC",
+				"description": "VAT",
+				"rate": 15,
+			},
+		)
+		pi.append(
+			"taxes",
+			{
+				"category": "Valuation and Total",
+				"add_deduct_tax": "Add",
+				"charge_type": "Actual",
+				"account_head": "_Test Account Shipping Charges - _TC",
+				"cost_center": "_Test Cost Center - _TC",
+				"description": "Shipping",
+				"tax_amount": 100,
+			},
+		)
+		pi.insert()
+		pi.submit()
+		pr_name = linked_receipts(pi.name)[0].name
+		account = frappe.get_cached_value("Company", COMPANY, "stock_received_but_not_billed")
+		gl = frappe.get_all(
+			"GL Entry",
+			filters={"voucher_no": ["in", [pi.name, pr_name]], "is_cancelled": 0},
+			fields=["voucher_type", "account", "debit", "credit"],
+			order_by="voucher_type, account",
+		)
+		net = sum(flt(g.debit) - flt(g.credit) for g in gl if g.account == account)
+		self.assertEqual(net, 0, msg=gl)
+		for voucher_type in ("Purchase Invoice", "Purchase Receipt"):
+			self.assertTrue(any(g.account == account and g.voucher_type == voucher_type for g in gl), msg=gl)
+
+
+def add_row(pi, item_code, qty, rate):
+	pi.append(
+		"items",
+		{
+			"item_code": item_code,
+			"warehouse": WAREHOUSE,
+			"qty": qty,
+			"rate": rate,
+			"price_list_rate": rate,
+			"conversion_factor": 1.0,
+			"stock_uom": "_Test UOM",
+			"expense_account": "_Test Account Cost for Goods Sold - _TC",
+			"cost_center": "_Test Cost Center - _TC",
+		},
+	)
+
+
+def make_item_without_defaults():
+	"""A stock item with no default warehouse anywhere (item, group, Stock Settings)."""
+	group = "_Test Auto GRN No Default Group"
+	if not frappe.db.exists("Item Group", group):
+		frappe.get_doc(
+			{"doctype": "Item Group", "item_group_name": group, "parent_item_group": "All Item Groups"}
+		).insert()
+	item_code = "_Test Auto GRN No Warehouse Item"
+	if not frappe.db.exists("Item", item_code):
+		frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code,
+				"item_group": group,
+				"stock_uom": "_Test UOM",
+				"is_stock_item": 1,
+			}
+		).insert()
+	return item_code
 
 
 class TestReturnGrn(AutoGrnTestCase):
