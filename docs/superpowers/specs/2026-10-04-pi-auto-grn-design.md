@@ -4,7 +4,9 @@ Date: 2026-10-04 · App: `aqrar_ext` (branch `develop`) · Site: aqrar-prod.enfo
 
 ## Goal
 Submitting a Purchase Invoice (PI) automatically creates and submits the Purchase
-Receipt (PR / GRN) that books the stock. The PI itself never updates stock.
+Receipt (PR / GRN) that books the stock. The PI itself does not update stock, except a
+standalone debit note (no `return_against`) and a return against a pre-feature PI that had
+`update_stock = 1`; those move the stock on the PI.
 
 ## Decisions (agreed with requester)
 1. **Date rule (A).** `system_start = 2026-09-01`, `cutoff = start + 90 days = 2026-11-30`.
@@ -49,10 +51,15 @@ disabled. Select rows: stock item and no `pr_detail`. No rows → return.
    The PR's header discount is reset to the share its rows carry on the PI: the sum of their
    `distributed_discount_amount` (prorated for partly received rows), applied on Net Total. The
    mapper would otherwise copy the whole discount onto a PR holding only the stock rows. Not
-   `amount - net_amount`: with tax-inclusive VAT that difference also holds the tax.
-   After insert, the PR's net total is compared with the PI stock rows' net total: within one
-   unit of the last currency digit per row it passes; up to 10x that it is logged
-   (`Auto GRN rounding difference`); beyond that the submit is refused (a real misallocation).
+   `amount - net_amount`: with tax-inclusive VAT that difference also holds the tax. The share
+   is used only when the PI itself has a header discount (`discount_amount`, which
+   `additional_discount_percentage` also sets): ERPNext writes `distributed_discount_amount`
+   only while a discount is set and never clears it, so a discount set then removed, or rows
+   copied from a discounted document, leave stale values.
+   After insert, the PR's net total (company currency) is compared with the PI stock rows' net
+   total. With n rows and one unit of the last currency digit d: up to n·d passes silently; up
+   to n·d + 5·d passes and writes an Error Log titled `Auto GRN rounding difference`
+   (reference: the Purchase Invoice); beyond that the submit is refused.
 3. Link (only rows the PR took in full): write `purchase_receipt` / `pr_detail` onto the PI rows (`frappe.db.set_value` + in
    memory) and call `pi.update_billing_status_in_pr()` so the PR shows as billed.
 Accounting: PI's own GL (posted first) debits Stock Received But Not Billed because the rows had
@@ -64,13 +71,17 @@ invoice) → skip rows with a message, do not fail. Existing PR hooks (`flip_ret
 `apply_uom_aware_returns`) run on the generated return PR; tests must cover this.
 Each return PR row takes UOM, conversion factor, qty and stock qty from the return PI row (a
 return may change UOM). Its header discount is set the same way as the forward PR's, from the
-return PI rows' `distributed_discount_amount`, so the return PR's net equals the return PI's.
-Its rows' expense account is set to the company's default expense account: a return PR books
+return PI rows' `distributed_discount_amount` (only when the return PI has its own header
+discount), so the return PR's net equals the return PI's.
+Its rows' expense account is set to the company's default expense account (else its stock
+adjustment account; with neither, the return is refused with a message): a return PR books
 "divisional loss" (its net vs the stock value it removes at the original rate) there, and the
 copied row would otherwise put it on Stock Received But Not Billed. This arises because ERPNext
 gives a return PI its own discount split — e.g. 10 @ 50 less 50, return 2: return PI net -50
 (the whole discount), stock out 90, so 40 goes to the expense account and SRBNB nets to zero.
 A return against a PI that kept `update_stock` creates no return PR and shows no message.
+A debit note with no `return_against` and `update_stock = 0` whose rows point at an auto PR
+moves no stock; it shows the orange "return that stock manually" message.
 The return PR is never dated before the PR it returns: if the rule
 gives an earlier timestamp, the original PR's posting date/time is used (ERPNext only refuses a
 strictly earlier one).
