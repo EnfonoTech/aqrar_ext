@@ -37,7 +37,8 @@ Feature ships **disabled**; enable per site after UAT.
 **before_validate** — if enabled and the PI has any stock item row: `doc.update_stock = 0`.
 Must be before ERPNext's own validate, which derives each row's expense account from `update_stock`.
 Exception: a return against a PI that moved stock itself (`update_stock = 1`, pre-feature)
-keeps `update_stock`, so the return moves the stock back itself (there is no auto PR to return).
+keeps `update_stock`, so the return moves the stock back itself (there is no auto PR to return);
+so does a standalone debit note (`is_return` with no `return_against`).
 
 **on_submit** (runs after ERPNext's own on_submit, inside the same transaction) — skip if
 disabled. Select rows: stock item and no `pr_detail`. No rows → return.
@@ -45,10 +46,13 @@ disabled. Select rows: stock item and no `pr_detail`. No rows → return.
    it requires the PI to be docstatus 1, which it is by now.
 2. Set `set_posting_time = 1`, `posting_date` per the date rule, `posting_time = 00:00:01`,
    marker field. `insert()` + `submit()` under the user's own permissions.
-   The PR's header discount is reset to the share its rows carry on the PI
-   (`amount - net_amount` per row); the mapper would otherwise copy the whole discount onto a PR
-   holding only the stock rows. A guard throws if the PR's net total still differs from the PI
-   stock rows' net total beyond rounding.
+   The PR's header discount is reset to the share its rows carry on the PI: the sum of their
+   `distributed_discount_amount` (prorated for partly received rows), applied on Net Total. The
+   mapper would otherwise copy the whole discount onto a PR holding only the stock rows. Not
+   `amount - net_amount`: with tax-inclusive VAT that difference also holds the tax.
+   After insert, the PR's net total is compared with the PI stock rows' net total: within one
+   unit of the last currency digit per row it passes; up to 10x that it is logged
+   (`Auto GRN rounding difference`); beyond that the submit is refused (a real misallocation).
 3. Link (only rows the PR took in full): write `purchase_receipt` / `pr_detail` onto the PI rows (`frappe.db.set_value` + in
    memory) and call `pi.update_billing_status_in_pr()` so the PR shows as billed.
 Accounting: PI's own GL (posted first) debits Stock Received But Not Billed because the rows had
@@ -59,7 +63,15 @@ Any exception rolls the whole PI submit back.
 invoice) → skip rows with a message, do not fail. Existing PR hooks (`flip_return_quantities`,
 `apply_uom_aware_returns`) run on the generated return PR; tests must cover this.
 Each return PR row takes UOM, conversion factor, qty and stock qty from the return PI row (a
-return may change UOM). The return PR is never dated before the PR it returns: if the rule
+return may change UOM). Its header discount is set the same way as the forward PR's, from the
+return PI rows' `distributed_discount_amount`, so the return PR's net equals the return PI's.
+Its rows' expense account is set to the company's default expense account: a return PR books
+"divisional loss" (its net vs the stock value it removes at the original rate) there, and the
+copied row would otherwise put it on Stock Received But Not Billed. This arises because ERPNext
+gives a return PI its own discount split — e.g. 10 @ 50 less 50, return 2: return PI net -50
+(the whole discount), stock out 90, so 40 goes to the expense account and SRBNB nets to zero.
+A return against a PI that kept `update_stock` creates no return PR and shows no message.
+The return PR is never dated before the PR it returns: if the rule
 gives an earlier timestamp, the original PR's posting date/time is used (ERPNext only refuses a
 strictly earlier one).
 
