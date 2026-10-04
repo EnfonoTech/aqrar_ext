@@ -132,6 +132,30 @@ def linked_receipts(pi_name):
 	)
 
 
+def srbnb_net(*vouchers):
+	"""Net debit on Stock Received But Not Billed across the given vouchers."""
+	account = frappe.get_cached_value("Company", COMPANY, "stock_received_but_not_billed")
+	return sum(
+		flt(g.debit) - flt(g.credit)
+		for g in frappe.get_all(
+			"GL Entry",
+			filters={"account": account, "voucher_no": ["in", list(vouchers)], "is_cancelled": 0},
+			fields=["debit", "credit"],
+		)
+	)
+
+
+def sle_qty(voucher_no):
+	return sum(
+		flt(q)
+		for q in frappe.get_all(
+			"Stock Ledger Entry",
+			filters={"voucher_no": voucher_no, "is_cancelled": 0},
+			pluck="actual_qty",
+		)
+	)
+
+
 class TestCreateAutoGrn(AutoGrnTestCase):
 	def test_submit_creates_one_submitted_receipt(self):
 		pi = self.make_pi(posting_date="2026-10-15", qty=5, rate=50)
@@ -356,6 +380,32 @@ class TestCreateAutoGrn(AutoGrnTestCase):
 		for voucher_type in ("Purchase Invoice", "Purchase Receipt"):
 			self.assertTrue(any(g.account == account and g.voucher_type == voucher_type for g in gl), msg=gl)
 
+	def assert_discount_nets_to_zero(self, pi):
+		pr = frappe.get_doc("Purchase Receipt", linked_receipts(pi.name)[0].name)
+		self.assertEqual(flt(srbnb_net(pi.name, pr.name), 2), 0)
+		stock_row = pi.items[0]
+		self.assertEqual(flt(pr.items[0].base_net_amount, 2), flt(stock_row.base_net_amount, 2))
+
+	def test_header_discount_on_mixed_invoice_nets_to_zero(self):
+		# The 31 discount is spread over both rows on the invoice (25 on the stock
+		# row); the receipt carries only the stock row, so it must take only 25.
+		pi = self.make_pi(qty=5, rate=50, do_not_save=True)
+		add_row(pi, NON_STOCK_ITEM, qty=2, rate=30)
+		pi.apply_discount_on = "Net Total"
+		pi.discount_amount = 31
+		pi.insert()
+		pi.submit()
+		self.assertEqual(flt(pi.items[0].base_net_amount), 225)
+		self.assert_discount_nets_to_zero(pi)
+
+	def test_header_discount_on_stock_only_invoice_nets_to_zero(self):
+		pi = self.make_pi(qty=5, rate=50, do_not_save=True)
+		pi.apply_discount_on = "Net Total"
+		pi.discount_amount = 31
+		pi.insert()
+		pi.submit()
+		self.assert_discount_nets_to_zero(pi)
+
 
 def add_row(pi, item_code, qty, rate):
 	pi.append(
@@ -425,6 +475,11 @@ class TestReturnGrn(AutoGrnTestCase):
 		ret = self.make_return(original, qty=3)
 		self.assertEqual(linked_receipts(ret.name), [])
 		self.assertEqual(ret.docstatus, 1)
+		# The original moved stock itself, so its return must too: forcing
+		# update_stock off here would leave the 3 units in stock for good.
+		self.assertEqual(ret.update_stock, 1)
+		self.assertEqual(sle_qty(ret.name), -3)
+		self.assertEqual(srbnb_net(original.name, ret.name), 0)
 
 	def test_return_cancel_cascades(self):
 		original = self.make_pi(qty=10)
@@ -433,12 +488,91 @@ class TestReturnGrn(AutoGrnTestCase):
 		ret.cancel()
 		self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 2)
 
+	def test_return_with_changed_uom(self):
+		from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+		# Bought 5 x "_Test UOM 1" (10 each = 50 stock units), 3 single units returned.
+		# (3, not more than 5: with update_stock off ERPNext's return check compares
+		# the raw qty against the invoiced qty, whatever the UOM.)
+		original = self.make_pi(qty=5, rate=500, do_not_save=True)
+		original.items[0].uom = "_Test UOM 1"
+		original.items[0].conversion_factor = 10
+		original.insert()
+		original.submit()
+		self.assertEqual(sle_qty(linked_receipts(original.name)[0].name), 50)
+
+		ret = make_return_doc("Purchase Invoice", original.name)
+		row = ret.items[0]
+		row.uom = "_Test UOM"
+		row.conversion_factor = 1
+		row.qty = row.received_qty = -3
+		row.stock_qty = -3
+		ret.insert()
+		ret.submit()
+		pr = frappe.get_doc("Purchase Receipt", linked_receipts(ret.name)[0].name)
+		self.assertEqual(sle_qty(pr.name), -3)
+		self.assertEqual(flt(pr.items[0].stock_qty), -3)
+
+	def test_return_receipt_not_dated_before_original_receipt(self):
+		# Original receipt dated the system start (before the cutoff) ...
+		original = self.make_pi(qty=10)
+		original_pr = frappe.get_doc("Purchase Receipt", linked_receipts(original.name)[0].name)
+		self.assertEqual(getdate(original_pr.posting_date), getdate(START))
+		# ... then the cutoff passes: the rule now gives return date - 90, which
+		# falls before the original receipt. ERPNext refuses a return dated earlier.
+		self.set_rule(start="2020-01-01", days=90)
+		ret = self.make_return(original, qty=3)
+		pr = frappe.get_doc("Purchase Receipt", linked_receipts(ret.name)[0].name)
+		self.assertGreaterEqual(getdate(pr.posting_date), getdate(original_pr.posting_date))
+
+	def test_two_return_rows_against_one_original_row_refused(self):
+		from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+		# Why _create_return_grn can key rows by pr_detail: ERPNext itself refuses a
+		# second invoice row pointing at the same receipt row.
+		original = self.make_pi(qty=10)
+		ret = make_return_doc("Purchase Invoice", original.name)
+		first = ret.items[0]
+		first.qty = first.received_qty = first.stock_qty = -2
+		second = ret.append("items", frappe.copy_doc(first).as_dict())
+		second.qty = second.received_qty = second.stock_qty = -3
+		with self.assertRaisesRegex(frappe.ValidationError, "Duplicate row"):
+			ret.insert()
+
+	def test_cancel_return_after_later_sale(self):
+		from erpnext.accounts.doctype.sales_invoice.test_sales_invoice import create_sales_invoice
+
+		# A sale after the (backdated) return receipt must not block cancelling the
+		# return: cancelling it puts stock back, it never takes stock away.
+		# (A stock-updating Sales Invoice, not a Delivery Note: the app re-prices DN
+		# rows at historical valuation, which its own cost floor can then reject.)
+		frappe.db.savepoint("auto_grn_return_sold")
+		try:
+			original = self.make_pi(qty=10)
+			ret = self.make_return(original, qty=3)
+			pr_name = linked_receipts(ret.name)[0].name
+			create_sales_invoice(
+				item_code=STOCK_ITEM,
+				qty=1,
+				rate=1000,
+				price_list_rate=1000,
+				uom="_Test UOM",
+				update_stock=1,
+				warehouse=WAREHOUSE,
+				company=COMPANY,
+				cost_center="_Test Cost Center - _TC",
+				expense_account="_Test Account Cost for Goods Sold - _TC",
+			)
+			ret.cancel()
+			self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 2)
+		finally:
+			frappe.db.rollback(save_point="auto_grn_return_sold")
+
 
 class TestCancelCascade(AutoGrnTestCase):
 	def test_cancel_pi_cancels_auto_receipt(self):
 		pi = self.make_pi()
 		pr_name = linked_receipts(pi.name)[0].name
-		pi.reload()  # the receipt submit touched the invoice after our copy was loaded
 		pi.cancel()
 		self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 2)
 
@@ -452,7 +586,6 @@ class TestCancelCascade(AutoGrnTestCase):
 		try:
 			pi = self.make_pi(qty=10)
 			pr_name = linked_receipts(pi.name)[0].name
-			pi.reload()  # the receipt submit touched the invoice after our copy was loaded
 			create_delivery_note(
 				item_code=STOCK_ITEM,
 				qty=10,
@@ -479,7 +612,6 @@ class TestCancelCascade(AutoGrnTestCase):
 		pi = self.make_pi()
 		pr_name = linked_receipts(pi.name)[0].name
 		self.set_rule(enabled=0)
-		pi.reload()  # the receipt submit touched the invoice after our copy was loaded
 		pi.cancel()
 		self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 2)
 
@@ -487,6 +619,29 @@ class TestCancelCascade(AutoGrnTestCase):
 		self.set_rule(enabled=0)
 		pi = self.make_pi(update_stock=1)
 		self.assertEqual(linked_receipts(pi.name), [])
-		pi.reload()  # the receipt submit touched the invoice after our copy was loaded
 		pi.cancel()
 		self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "docstatus"), 2)
+
+	def test_cancel_blocked_by_landed_cost_voucher(self):
+		from erpnext.stock.doctype.landed_cost_voucher.test_landed_cost_voucher import (
+			create_landed_cost_voucher,
+		)
+
+		# A submitted document other than this invoice that points at the receipt
+		# must still block the cascade, as it would block cancelling the receipt.
+		frappe.db.savepoint("auto_grn_lcv")
+		try:
+			pi = self.make_pi()
+			pr_name = linked_receipts(pi.name)[0].name
+			create_landed_cost_voucher("Purchase Receipt", pr_name, COMPANY)
+			frappe.db.savepoint("auto_grn_lcv_cancel")
+			with self.assertRaises(frappe.LinkExistsError):
+				try:
+					pi.cancel()
+				except Exception:
+					frappe.db.rollback(save_point="auto_grn_lcv_cancel")
+					raise
+			self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "docstatus"), 1)
+			self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 1)
+		finally:
+			frappe.db.rollback(save_point="auto_grn_lcv")

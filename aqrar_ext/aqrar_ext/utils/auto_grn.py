@@ -8,12 +8,12 @@ then ``backdate_days`` before the invoice's posting date.
 Hooks (registered in hooks.py under doc_events["Purchase Invoice"]):
   before_validate -> force_no_update_stock
   on_submit       -> create_auto_grn
-  before_cancel   -> cancel_auto_grn
+  on_cancel       -> cancel_auto_grn
 """
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, cint, flt, getdate, today
+from frappe.utils import add_days, cint, flt, get_datetime, getdate, today
 
 MARKER_FIELD = "custom_auto_grn_invoice"
 GRN_POSTING_TIME = "00:00:01"
@@ -61,6 +61,15 @@ def force_no_update_stock(doc, method=None):
 	"""
 	if not is_enabled() or not cint(doc.get("update_stock")):
 		return
+	# A return against an invoice that moved stock itself (submitted before the
+	# feature) has no auto receipt to return through, so it must move the stock
+	# back itself too.
+	if (
+		cint(doc.get("is_return"))
+		and doc.get("return_against")
+		and cint(frappe.db.get_value("Purchase Invoice", doc.return_against, "update_stock"))
+	):
+		return
 	if doc.get_stock_items():
 		doc.update_stock = 0
 
@@ -73,6 +82,11 @@ def create_auto_grn(doc, method=None):
 		_create_return_grn(doc)
 	else:
 		_create_forward_grn(doc)
+
+	# The receipt's status updater bumped this invoice's `modified` in the database;
+	# keep the in-memory copy (returned to the form) in step, or the next cancel /
+	# update-after-submit from that form fails with TimestampMismatchError.
+	doc.modified = frappe.db.get_value("Purchase Invoice", doc.name, "modified")
 
 
 def _stamp(pr, pi):
@@ -109,9 +123,49 @@ def _create_forward_grn(pi):
 	if not pr.get("items"):
 		return
 
+	_carry_invoice_discount(pr, pi, rows)
 	_stamp(pr, pi)
 	_insert_and_submit(pr, pi)
 	_link_rows(pi, pr)
+
+
+def _carry_invoice_discount(pr, pi, rows):
+	"""Give the receipt exactly the header discount its rows carry on the invoice.
+
+	The mapper copies the invoice's whole header discount, but the receipt holds
+	only the stock rows; on a mixed invoice it would then take the non-stock rows'
+	share too and credit Stock Received But Not Billed for less than the invoice
+	debited. Each invoice row's share is ``amount - net_amount`` (what ERPNext
+	distributed onto it), prorated when the receipt takes only part of the row.
+	It is applied as a plain Net Total discount, so the receipt spreads it over
+	the same rows in the same proportions.
+	"""
+	by_name = {r.name: r for r in rows}
+	share = expected = 0.0
+	for item in pr.items:
+		src = by_name[item.purchase_invoice_item]
+		part = flt(item.qty) / flt(src.qty) if flt(src.qty) else 0
+		share += (flt(src.amount) - flt(src.net_amount)) * part
+		expected += flt(src.base_net_amount) * part
+
+	if pr.meta.has_field("is_cash_or_non_trade_discount"):
+		pr.is_cash_or_non_trade_discount = 0
+	pr.additional_discount_percentage = 0
+	pr.apply_discount_on = "Net Total"
+	pr.discount_amount = flt(share, pr.precision("discount_amount"))
+	pr.calculate_taxes_and_totals()
+
+	# Rounding can differ by at most a cent per row (prorated rows); anything more
+	# means the receipt would not clear what the invoice booked.
+	precision = pr.precision("base_net_total")
+	actual = sum(flt(item.base_net_amount) for item in pr.items)
+	if abs(flt(actual - expected, precision)) > len(pr.items) * 10**-precision:
+		frappe.throw(
+			_(
+				"Auto GRN for Purchase Invoice {0}: receipt net amount {1} does not match the "
+				"invoice's stock rows ({2})"
+			).format(pi.name, flt(actual, precision), flt(expected, precision))
+		)
 
 
 def _insert_and_submit(pr, pi):
@@ -169,6 +223,8 @@ def _create_return_grn(pi):
 	if frappe.db.exists("Purchase Receipt", {MARKER_FIELD: pi.name, "docstatus": 1}):
 		return
 
+	# ERPNext refuses two invoice rows with the same pr_detail
+	# (validate_with_previous_doc), so each original receipt row appears once here.
 	stock_items = set(pi.get_stock_items())
 	wanted = {}
 	skipped = False
@@ -199,6 +255,11 @@ def _create_return_grn(pi):
 		ret.items = [i for i in ret.items if i.purchase_receipt_item in rows]
 		for item in ret.items:
 			src = rows[item.purchase_receipt_item]
+			# qty is in the return invoice row's UOM, which may differ from the
+			# original receipt row's (returns can change UOM), so take the UOM
+			# and factor from the same row as the quantities.
+			item.uom = src.uom
+			item.conversion_factor = src.conversion_factor
 			item.qty = -abs(flt(src.qty))
 			item.received_qty = item.qty
 			item.rejected_qty = 0
@@ -207,18 +268,35 @@ def _create_return_grn(pi):
 		if not ret.items:
 			continue
 		_stamp(ret, pi)
+		_not_before_original(ret, pr_name)
 		_insert_and_submit(ret, pi)
 
 
-def cancel_auto_grn(doc, method=None):
-	"""before_cancel: cancel the receipts this invoice created.
+def _not_before_original(ret, pr_name):
+	"""Never date a return receipt before the receipt it returns.
 
-	before_cancel, not on_cancel: Frappe's "is this document linked" check runs
-	right after the invoice is saved as cancelled and before on_cancel, and it
-	counts the still-submitted receipt (whose rows point back at the invoice), so
-	the invoice's own cancel would be refused first. The receipt is cancelled with
-	``ignore_links`` because the invoice that links to it is being cancelled in the
-	same transaction.
+	After the cutoff the rule gives "return date - backdate days", which can fall
+	before an original receipt dated the system start. ERPNext refuses a return
+	strictly earlier than its original (validate_return_against); the same
+	timestamp is allowed, so take the original's.
+	"""
+	orig = frappe.db.get_value("Purchase Receipt", pr_name, ["posting_date", "posting_time"], as_dict=True)
+	if get_datetime(f"{ret.posting_date} {ret.posting_time}") < get_datetime(
+		f"{orig.posting_date} {orig.posting_time}"
+	):
+		ret.posting_date = orig.posting_date
+		ret.posting_time = orig.posting_time
+
+
+def cancel_auto_grn(doc, method=None):
+	"""on_cancel: cancel the receipts this invoice created.
+
+	By on_cancel the invoice is already saved as cancelled, so its rows no longer
+	count as a live link to the receipt, and Frappe runs the invoice's own
+	linked-document check only after on_cancel (Document.run_post_save_methods),
+	by which time the receipt is cancelled too. The receipt keeps its normal
+	link check: any other submitted document pointing at it (a Landed Cost
+	Voucher, a manual return) blocks the whole invoice cancel.
 
 	Runs whether or not the setting is still on: a marker means we created it. The
 	app's Purchase Receipt before_cancel guard still applies, so if the received
@@ -227,6 +305,4 @@ def cancel_auto_grn(doc, method=None):
 	for name in frappe.get_all(
 		"Purchase Receipt", filters={MARKER_FIELD: doc.name, "docstatus": 1}, pluck="name"
 	):
-		pr = frappe.get_doc("Purchase Receipt", name)
-		pr.flags.ignore_links = True
-		pr.cancel()
+		frappe.get_doc("Purchase Receipt", name).cancel()

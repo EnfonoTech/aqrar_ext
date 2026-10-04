@@ -16,6 +16,9 @@ def block_cancel_if_consumed(doc, method=None):
 	"""Refuse to cancel a receipt whose stock has already been issued."""
 	if doc.flags.get(FINAL_GRN_FLAG):
 		return
+	# Cancelling a return puts stock back; later sales cannot make that unsafe.
+	if doc.get("is_return"):
+		return
 
 	consumed_item = find_consumed_item(doc)
 	if not consumed_item:
