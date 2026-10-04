@@ -4,7 +4,7 @@
 
 **Goal:** Submitting a Purchase Invoice auto-creates and submits the Purchase Receipt that books its stock; the PI never updates stock itself.
 
-**Architecture:** Three doc_events on Purchase Invoice in `aqrar_ext`: `before_validate` forces `update_stock = 0`; `on_submit` builds the PR with ERPNext's own `make_purchase_receipt` mapper (backdated per the date rule), submits it, and links the PI rows to it; `on_cancel` cancels the auto-created PRs. Return PIs get a return PR built with `make_return_doc`. Settings live in the `Aqrar Settings` Single; a marker Custom Field on Purchase Receipt ties each auto-PR to its PI.
+**Architecture:** Three doc_events on Purchase Invoice in `aqrar_ext`: `before_validate` forces `update_stock = 0`; `on_submit` builds the PR with ERPNext's own `make_purchase_receipt` mapper (backdated per the date rule), submits it, and links the PI rows to it; `before_cancel` cancels the auto-created PRs (not `on_cancel`: Frappe's back-link check on the PI runs before `on_cancel`, and the auto PRs link to the PI). Return PIs get a return PR built with `make_return_doc`. Settings live in the `Aqrar Settings` Single; a marker Custom Field on Purchase Receipt ties each auto-PR to its PI.
 
 **Tech Stack:** Frappe/ERPNext v15 (local bench: ERPNext 15.121.2 / Frappe 15.120.1), Python, `frappe.tests.utils.FrappeTestCase`.
 
@@ -37,7 +37,7 @@ Tabs for indentation, ruff line length 110, `_()` on user text, `cint/flt/getdat
 - Modify: `docs/superpowers/specs/2026-10-04-pi-auto-grn-design.md`
 
 - [ ] **Step 1: Amend the spec.** In the "Components" table change the registration cell to:
-  `doc_events["Purchase Invoice"]`: `before_validate` += `force_no_update_stock`; `on_submit` += `create_auto_grn`; `on_cancel` = `cancel_auto_grn`.
+  `doc_events["Purchase Invoice"]`: `before_validate` += `force_no_update_stock`; `on_submit` += `create_auto_grn`; `before_cancel` = `cancel_auto_grn`.
   Replace the whole "## Flow" section's first two paragraphs (`**validate**` and `**before_submit**` blocks) with:
 
 ```markdown
@@ -225,7 +225,7 @@ then ``backdate_days`` before the invoice's posting date.
 Hooks (registered in hooks.py under doc_events["Purchase Invoice"]):
   before_validate -> force_no_update_stock
   on_submit       -> create_auto_grn
-  on_cancel       -> cancel_auto_grn
+  before_cancel   -> cancel_auto_grn
 """
 
 import frappe
@@ -786,7 +786,11 @@ class TestCancelCascade(AutoGrnTestCase):
 
 ```python
 def cancel_auto_grn(doc, method=None):
-	"""on_cancel: cancel the receipts this invoice created.
+	"""before_cancel: cancel the receipts this invoice created.
+
+	Must be before_cancel, not on_cancel: Frappe runs check_no_back_links_exist
+	(the auto PR links to this PI) before on_cancel, so cancelling there is too late.
+	Each PR is cancelled with flags.ignore_links = True.
 
 	Runs whether or not the setting is still on — a marker means we created it.
 	The app's existing Purchase Receipt before_cancel guard still applies, so if
@@ -795,10 +799,12 @@ def cancel_auto_grn(doc, method=None):
 	for name in frappe.get_all(
 		"Purchase Receipt", filters={MARKER_FIELD: doc.name, "docstatus": 1}, pluck="name"
 	):
-		frappe.get_doc("Purchase Receipt", name).cancel()
+		pr = frappe.get_doc("Purchase Receipt", name)
+		pr.flags.ignore_links = True
+		pr.cancel()
 ```
 
-- [ ] **Step 4: Register in `hooks.py`.** Add to the Purchase Invoice dict: `"on_cancel": _AUTO_GRN_CANCEL_HOOK,`.
+- [ ] **Step 4: Register in `hooks.py`.** Add to the Purchase Invoice dict: `"before_cancel": _AUTO_GRN_CANCEL_HOOK,`. Frappe runs `check_no_back_links_exist` (the auto PR links to the PI via `custom_auto_grn_invoice`) before `on_cancel`, so cancelling the PRs there is too late; `cancel_auto_grn` therefore runs in `before_cancel` and cancels each marker PR with `pr.flags.ignore_links = True`.
 
 - [ ] **Step 5: Run the whole module, expect all PASS** (Tasks 2–7).
 
@@ -806,7 +812,6 @@ def cancel_auto_grn(doc, method=None):
 cd ~/Developer/frappe-bench
 bench --site aqrar-test.local run-tests --app aqrar_ext --module aqrar_ext.aqrar_ext.utils.test_auto_grn
 ```
-If `test_cancel_pi_cancels_auto_receipt` fails with a "linked document" error from PR cancel, the PI is still treated as a live link at that point — report it; the fix is to cancel the receipts from `before_cancel` instead, which needs a new test run, not a weakened assertion.
 
 - [ ] **Step 6: Regression-check the app's existing PR/PI hooks**
 
@@ -861,7 +866,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Inside PI submit, rollback on failure → Task 5 (`test_failure_rolls_back_invoice_submit`). ✔
 - Rows with existing PR link skipped; `update_stock` reset; rows without link auto-PR'd → Tasks 4, 5. ✔
 - Returns handled; non-stock skipped → Tasks 5, 6. ✔
-- Cancel cascade + consumed-stock block → Task 7. ✔
+- Cancel cascade (`before_cancel`, `ignore_links`) + consumed-stock block → Task 7. ✔
 - Settings / marker / hooks / README → Tasks 1, 3, 4, 5, 7, 8. ✔
 - Ships disabled → Task 1 (`"default": "0"`). ✔
 - Names consistent across tasks: `MARKER_FIELD`, `get_grn_posting_date`, `get_grn_date_for`, `force_no_update_stock`, `create_auto_grn`, `cancel_auto_grn`, `_create_forward_grn`, `_create_return_grn`, `_link_rows`, `_stamp`. ✔

@@ -26,7 +26,7 @@ and are registered as `_X_HOOK` constants in `hooks.py`; settings live in the
 | Piece | Where |
 |---|---|
 | Hook logic | new `aqrar_ext/aqrar_ext/utils/auto_grn.py` |
-| Registration | `hooks.py` → `doc_events["Purchase Invoice"]`: `before_validate` += `force_no_update_stock`; `on_submit` += `create_auto_grn`; `on_cancel` = `cancel_auto_grn` |
+| Registration | `hooks.py` → `doc_events["Purchase Invoice"]`: `before_validate` += `force_no_update_stock`; `on_submit` += `create_auto_grn`; `before_cancel` = `cancel_auto_grn` |
 | Settings | `Aqrar Settings` += `auto_grn_enabled` (Check, default 0), `auto_grn_system_start_date` (Date, 2026-09-01), `auto_grn_backdate_days` (Int, 90) |
 | Marker | Custom Field `Purchase Receipt-custom_auto_grn_invoice` (Link → Purchase Invoice, read-only, no_copy) via `setup_data.CUSTOM_FIELDS` |
 | Tests | `aqrar_ext/aqrar_ext/utils/test_auto_grn.py` (pure date fn) + integration tests |
@@ -53,7 +53,7 @@ Any exception rolls the whole PI submit back.
 invoice) → skip rows with a message, do not fail. Existing PR hooks (`flip_return_quantities`,
 `apply_uom_aware_returns`) run on the generated return PR; tests must cover this.
 
-**on_cancel** — cancel PRs carrying the marker for this PI. Existing
+**before_cancel** — cancel PRs carrying the marker for this PI (with `pr.flags.ignore_links = True`). Frappe runs `check_no_back_links_exist` (the auto PR links to the PI via `custom_auto_grn_invoice`) before `on_cancel`, so cancelling the PRs there is too late; `cancel_auto_grn` therefore runs in `before_cancel` and cancels each marker PR with `pr.flags.ignore_links = True`. Existing
 `block_cancel_if_consumed` still applies: if the stock was already sold, cancelling the PI is
 blocked with its message (intended — stock cannot vanish under sales).
 
@@ -72,6 +72,10 @@ Tested: 2026-11-29 → 2026-09-01; 2026-11-30 → PI date − 90; PI date before
 - **Final GRN (CR-001)** cancels a PR and creates a replacement. A PI row linked to the
   cancelled PR is not re-pointed. Not handled here.
 - Existing PIs are untouched; no patch required.
+- **Permissions (OPEN product decision):** PI submitters without Purchase Receipt create permission (e.g. Accounts User) get a PermissionError and the PI submit rolls back. Either grant PR create/submit to those roles, or set `ignore_permissions` on the system-created PR.
+- Rows with `received_qty > 0` and no `pr_detail` are left unlinked (the PR covers only the remainder).
+- A PI stock row with no resolvable warehouse throws a clear error.
+- Backdated PRs trigger valuation repost for later movements of the item/warehouse, inside the submit transaction.
 - Landed-cost vouchers, Purchase Order linkage changes: not touched.
 
 ## Test plan
