@@ -8,7 +8,7 @@ from erpnext.stock.doctype.stock_ledger_entry.stock_ledger_entry import StockFre
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, getdate
 
-from aqrar_ext.aqrar_ext.utils.auto_grn import MARKER_FIELD, get_grn_posting_date
+from aqrar_ext.aqrar_ext.utils.auto_grn import MARKER_FIELD, _check_net_total, get_grn_posting_date
 
 # Frappe loads test records for these before the module runs (ERPNext's own
 # Purchase Invoice tests need the same set).
@@ -503,6 +503,123 @@ class TestCreateAutoGrn(AutoGrnTestCase):
 		self.assertEqual(sle_qty(ret.name), -2)
 		self.assertEqual(linked_receipts(ret.name), [])
 
+	def submit_after_clearing_discount(self, discount, rows=1):
+		"""Save with a header discount, clear it, save, submit.
+
+		ERPNext writes each row's distributed_discount_amount only while a header
+		discount is set and never clears it, so the rows keep stale shares.
+		"""
+		pi = self.make_pi(qty=5, rate=50, do_not_save=True)
+		for _i in range(rows - 1):
+			add_row(pi, STOCK_ITEM, qty=3, rate=17)
+		pi.apply_discount_on = "Net Total"
+		pi.discount_amount = discount
+		pi.insert()
+		self.assertTrue(any(flt(r.distributed_discount_amount) for r in pi.items))
+		pi.discount_amount = 0
+		pi.save()
+		pi.submit()
+		return pi
+
+	def test_cleared_header_discount_is_ignored(self):
+		self.assert_srbnb_balanced(self.submit_after_clearing_discount(31))
+
+	def test_cleared_small_header_discount_over_three_rows_is_ignored(self):
+		self.assert_srbnb_balanced(self.submit_after_clearing_discount(0.25, rows=3))
+
+	def test_cleared_one_cent_header_discount_is_ignored(self):
+		self.assert_srbnb_balanced(self.submit_after_clearing_discount(0.01))
+
+	def test_foreign_currency_tax_inclusive_with_header_discount(self):
+		pi = self.make_pi(
+			qty=7,
+			rate=13.37,
+			do_not_save=True,
+			supplier="_Test Supplier USD",
+			currency="USD",
+			conversion_rate=3.7513,
+		)
+		pi.credit_to = "_Test Payable USD - _TC"
+		add_row(pi, NON_STOCK_ITEM, qty=3, rate=9.99)
+		add_row(pi, "_Test Item Home Desktop 100", qty=11, rate=7.77)
+		add_inclusive_vat(pi)
+		pi.apply_discount_on = "Net Total"
+		pi.discount_amount = 4.44
+		pi.insert()
+		pi.submit()
+		self.assert_srbnb_balanced(pi)
+
+	def test_item_level_discounts_with_header_percentage_tax_inclusive(self):
+		pi = self.make_pi(qty=5, rate=50, do_not_save=True)
+		pi.items[0].price_list_rate = 60
+		pi.items[0].discount_percentage = 12.5
+		pi.items[0].rate = 0
+		add_row(pi, "_Test Item Home Desktop 100", qty=3, rate=20)
+		pi.items[1].price_list_rate = 25
+		pi.items[1].discount_amount = 5
+		add_row(pi, NON_STOCK_ITEM, qty=1, rate=10)
+		add_inclusive_vat(pi)
+		pi.apply_discount_on = "Net Total"
+		pi.additional_discount_percentage = 3.3
+		pi.insert()
+		pi.submit()
+		self.assert_srbnb_balanced(pi)
+
+	def test_debit_note_against_auto_receipt_alerts(self):
+		# No return_against and no stock update: nothing moves the stock back, so
+		# say so instead of staying silent.
+		original = self.make_pi(qty=10)
+		pr = frappe.get_doc("Purchase Receipt", linked_receipts(original.name)[0].name)
+		ret = self.make_pi(qty=-2, is_return=1, do_not_save=True)
+		ret.items[0].purchase_receipt = pr.name
+		ret.items[0].pr_detail = pr.items[0].name
+		frappe.local.message_log = []
+		ret.insert()
+		ret.submit()
+		self.assertEqual(ret.update_stock, 0)
+		self.assertEqual(linked_receipts(ret.name), [])
+		self.assertTrue([m for m in frappe.local.message_log if "manually" in str(m)])
+
+
+class TestNetTotalCheck(FrappeTestCase):
+	"""Tiers of _check_net_total: silent / logged / refused (rows x one cent, +5 cents)."""
+
+	def setUp(self):
+		# Long (120 chars) and unique per run: Error Log rows can outlive a test
+		# (they are not rolled back between tests, and something in the run commits).
+		self.LONG_NAME = f"ACC-PINV-{frappe.generate_hash(length=10)}-".ljust(120, "9")
+
+	def receipt(self, *amounts):
+		pr = frappe.new_doc("Purchase Receipt")
+		pr.company = COMPANY
+		for amount in amounts:
+			pr.append("items", {"item_code": STOCK_ITEM, "base_net_amount": amount})
+		return pr
+
+	def logs(self):
+		return frappe.get_all(
+			"Error Log",
+			filters={"method": "Auto GRN rounding difference", "reference_name": self.LONG_NAME},
+			fields=["reference_doctype", "reference_name", "error"],
+		)
+
+	def test_within_one_cent_per_row_passes_silently(self):
+		_check_net_total(self.receipt(10, 10, 10), frappe._dict(name=self.LONG_NAME), 30.03)
+		self.assertEqual(self.logs(), [])
+
+	def test_up_to_five_cents_more_is_logged(self):
+		_check_net_total(self.receipt(10, 10, 10), frappe._dict(name=self.LONG_NAME), 30.08)
+		logs = self.logs()
+		self.assertEqual(len(logs), 1)
+		self.assertEqual(logs[0].reference_doctype, "Purchase Invoice")
+		self.assertIn("30.08", logs[0].error)
+
+	def test_beyond_that_is_refused(self):
+		with self.assertRaisesRegex(frappe.ValidationError, "does not match") as ctx:
+			_check_net_total(self.receipt(10, 10, 10), frappe._dict(name=self.LONG_NAME), 30.09)
+		self.assertNotIsInstance(ctx.exception, frappe.CharacterLengthExceededError)
+		self.assertEqual(self.logs(), [])
+
 
 def add_inclusive_vat(pi):
 	pi.append(
@@ -586,6 +703,9 @@ class TestReturnGrn(AutoGrnTestCase):
 		original = self.make_pi(update_stock=1, qty=10)
 		self.set_rule(enabled=1)
 		frappe.local.message_log = []
+		bin_before = flt(
+			frappe.db.get_value("Bin", {"item_code": STOCK_ITEM, "warehouse": WAREHOUSE}, "actual_qty")
+		)
 		ret = self.make_return(original, qty=3)
 		self.assertEqual(linked_receipts(ret.name), [])
 		self.assertEqual(ret.docstatus, 1)
@@ -595,7 +715,21 @@ class TestReturnGrn(AutoGrnTestCase):
 		# update_stock off here would leave the 3 units in stock for good.
 		self.assertEqual(ret.update_stock, 1)
 		self.assertEqual(sle_qty(ret.name), -3)
-		self.assertEqual(srbnb_net(original.name, ret.name), 0)
+		self.assertTrue(
+			frappe.db.exists(
+				"Stock Ledger Entry",
+				{
+					"voucher_type": "Purchase Invoice",
+					"voucher_no": ret.name,
+					"actual_qty": -3,
+					"is_cancelled": 0,
+				},
+			)
+		)
+		bin_after = flt(
+			frappe.db.get_value("Bin", {"item_code": STOCK_ITEM, "warehouse": WAREHOUSE}, "actual_qty")
+		)
+		self.assertEqual(bin_after, bin_before - 3)
 
 	def test_return_cancel_cascades(self):
 		original = self.make_pi(qty=10)
@@ -635,7 +769,13 @@ class TestReturnGrn(AutoGrnTestCase):
 	def assert_return_balanced(self, original, ret):
 		prs = [r.name for r in linked_receipts(original.name)] + [r.name for r in linked_receipts(ret.name)]
 		self.assertEqual(len(prs), 2)
+		account = frappe.get_cached_value("Company", COMPANY, "stock_received_but_not_billed")
+		for voucher in (original.name, ret.name, *prs):
+			self.assertTrue(
+				frappe.db.exists("GL Entry", {"account": account, "voucher_no": voucher, "is_cancelled": 0})
+			)
 		self.assertEqual(flt(srbnb_net(original.name, ret.name, *prs), 2), 0)
+		return prs[1]
 
 	def test_return_of_stock_row_from_discounted_mixed_invoice(self):
 		from erpnext.controllers.sales_and_purchase_return import make_return_doc
@@ -667,7 +807,72 @@ class TestReturnGrn(AutoGrnTestCase):
 		ret.items[0].qty = ret.items[0].received_qty = -2
 		ret.insert()
 		ret.submit()
+		return_pr = self.assert_return_balanced(original, ret)
+		# Return invoice credits 50 (whole discount); stock out at 45 x 2 = 90: the
+		# 40 difference goes to the company's default expense account.
+		loss_account = frappe.get_cached_value("Company", COMPANY, "default_expense_account")
+		loss = frappe.get_all(
+			"GL Entry",
+			filters={"voucher_no": return_pr, "account": loss_account, "is_cancelled": 0},
+			fields=["debit", "credit"],
+		)
+		self.assertEqual(sum(flt(g.debit) - flt(g.credit) for g in loss), 40)
+
+	def test_cleared_discount_on_return_invoice_is_ignored(self):
+		from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+		# The return rows carry the original's distributed_discount_amount; with the
+		# return's own discount cleared they are stale and must not be carried.
+		original = self.make_pi(qty=10, rate=50, do_not_save=True)
+		original.apply_discount_on = "Net Total"
+		original.discount_amount = 50
+		original.insert()
+		original.submit()
+		ret = make_return_doc("Purchase Invoice", original.name)
+		ret.items[0].qty = ret.items[0].received_qty = -2
+		ret.discount_amount = 0
+		ret.additional_discount_percentage = 0
+		ret.insert()
+		self.assertEqual(flt(ret.discount_amount), 0)
+		ret.submit()
 		self.assert_return_balanced(original, ret)
+
+	def blank_company_accounts(self, *fields):
+		for field in fields:
+			frappe.db.set_value("Company", COMPANY, field, None)
+		frappe.clear_document_cache("Company", COMPANY)
+
+	def test_return_loss_falls_back_to_stock_adjustment_account(self):
+		frappe.db.savepoint("auto_grn_accounts")
+		try:
+			original = self.make_pi(qty=10, rate=50, do_not_save=True)
+			original.apply_discount_on = "Net Total"
+			original.discount_amount = 50
+			original.insert()
+			original.submit()
+			self.blank_company_accounts("default_expense_account")
+			ret = self.make_return(original, qty=2)
+			return_pr = self.assert_return_balanced(original, ret)
+			adjustment = frappe.get_cached_value("Company", COMPANY, "stock_adjustment_account")
+			self.assertTrue(
+				frappe.db.exists(
+					"GL Entry", {"voucher_no": return_pr, "account": adjustment, "is_cancelled": 0}
+				)
+			)
+		finally:
+			frappe.db.rollback(save_point="auto_grn_accounts")
+			frappe.clear_document_cache("Company", COMPANY)
+
+	def test_return_without_loss_accounts_is_refused(self):
+		frappe.db.savepoint("auto_grn_accounts")
+		try:
+			original = self.make_pi(qty=10)
+			self.blank_company_accounts("default_expense_account", "stock_adjustment_account")
+			with self.assertRaisesRegex(frappe.ValidationError, "Stock Adjustment Account"):
+				self.make_return(original, qty=2)
+		finally:
+			frappe.db.rollback(save_point="auto_grn_accounts")
+			frappe.clear_document_cache("Company", COMPANY)
 
 	def test_return_receipt_not_dated_before_original_receipt(self):
 		# Original receipt dated the system start (before the cutoff) ...
