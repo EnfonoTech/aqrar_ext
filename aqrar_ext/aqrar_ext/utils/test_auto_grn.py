@@ -138,9 +138,9 @@ def linked_receipts(pi_name):
 	)
 
 
-def srbnb_net(*vouchers):
-	"""Net debit on Stock Received But Not Billed across the given vouchers."""
-	account = frappe.get_cached_value("Company", COMPANY, "stock_received_but_not_billed")
+def srbnb_net(*vouchers, company=COMPANY):
+	"""Net debit on ``company``'s Stock Received But Not Billed across the vouchers."""
+	account = frappe.get_cached_value("Company", company, "stock_received_but_not_billed")
 	return sum(
 		flt(g.debit) - flt(g.credit)
 		for g in frappe.get_all(
@@ -642,7 +642,17 @@ class TestCompanyWise(AutoGrnTestCase):
 		prs = linked_receipts(other.name)
 		self.assertEqual(len(prs), 1)
 		self.assertEqual(frappe.db.get_value("Purchase Receipt", prs[0].name, "company"), OTHER_COMPANY)
-		self.assertEqual(flt(srbnb_net(other.name, prs[0].name), 2), 0)
+		# The receipt, not the invoice, moved the stock.
+		self.assertEqual(sle_qty(prs[0].name), 5)
+		self.assertEqual(sle_qty(other.name), 0)
+		# Both vouchers post to the OTHER company's SRBNB account, and it nets to zero.
+		account = frappe.get_cached_value("Company", OTHER_COMPANY, "stock_received_but_not_billed")
+		self.assertTrue(account.endswith(" - _TC1"))
+		for voucher in (other.name, prs[0].name):
+			self.assertTrue(
+				frappe.db.exists("GL Entry", {"account": account, "voucher_no": voucher, "is_cancelled": 0})
+			)
+		self.assertEqual(flt(srbnb_net(other.name, prs[0].name, company=OTHER_COMPANY), 2), 0)
 
 		first = self.make_pi(update_stock=1)
 		self.assertEqual(first.update_stock, 1)
@@ -661,22 +671,27 @@ class TestCompanyWise(AutoGrnTestCase):
 			getdate(frappe.utils.today()),
 		)
 
-	def test_blank_rule_falls_back_to_defaults(self):
+	def test_blank_start_date_falls_back_to_default(self):
+		# Only the start date can be blank; backdate days is an Int column that
+		# saves 0 when cleared, so the company's own days (here 30) still apply.
 		from aqrar_ext.aqrar_ext.utils.auto_grn import (
-			DEFAULT_BACKDATE_DAYS,
 			DEFAULT_START_DATE,
 			get_grn_date_for,
 			get_grn_posting_date,
 		)
 
-		frappe.db.set_value("Company", OTHER_COMPANY, "custom_auto_grn_start_date", None)
-		frappe.clear_document_cache("Company", OTHER_COMPANY)
+		self.set_rule(enabled=1, start=None, days=30, company=OTHER_COMPANY)
+		self.assertIsNone(frappe.db.get_value("Company", OTHER_COMPANY, "custom_auto_grn_start_date"))
 		self.assertEqual(
 			get_grn_date_for(frappe._dict(company=OTHER_COMPANY, posting_date="2026-10-15")),
-			get_grn_posting_date(
-				"2026-10-15", frappe.utils.today(), DEFAULT_START_DATE, DEFAULT_BACKDATE_DAYS
-			),
+			get_grn_posting_date("2026-10-15", frappe.utils.today(), DEFAULT_START_DATE, 30),
 		)
+
+	def test_cleared_backdate_days_saves_zero(self):
+		company = frappe.get_doc("Company", COMPANY)
+		company.custom_auto_grn_backdate_days = None
+		company.save()
+		self.assertEqual(frappe.db.get_value("Company", COMPANY, "custom_auto_grn_backdate_days"), 0)
 
 	def save_company_with_days(self, days):
 		company = frappe.get_doc("Company", COMPANY)

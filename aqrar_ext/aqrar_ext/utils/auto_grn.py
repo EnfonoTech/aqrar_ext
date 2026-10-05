@@ -26,8 +26,11 @@ from frappe.utils import add_days, cint, flt, get_datetime, getdate, today
 MARKER_FIELD = "custom_auto_grn_invoice"
 GRN_POSTING_TIME = "00:00:01"
 
-# Settings are per Company (Custom Fields, setup_data.py). Used when a company's
-# start date or backdate days is blank.
+# Settings are per Company (Custom Fields, setup_data.py). DEFAULT_START_DATE is
+# used when a company's start date is blank. Backdate days is an Int column (NOT
+# NULL, default 90 when the field is created): clearing it on the form saves 0,
+# which dates the GRN on the invoice's own date once the cutoff has passed;
+# DEFAULT_BACKDATE_DAYS only applies if the value is somehow missing (None).
 DEFAULT_START_DATE = "2026-09-01"
 DEFAULT_BACKDATE_DAYS = 90
 

@@ -4,7 +4,7 @@
 
 **Goal:** Submitting a Purchase Invoice auto-creates and submits the Purchase Receipt that books its stock; the PI never updates stock itself.
 
-**Architecture:** Three doc_events on Purchase Invoice in `aqrar_ext`: `before_validate` forces `update_stock = 0`; `on_submit` builds the PR with ERPNext's own `make_purchase_receipt` mapper (backdated per the date rule), submits it, and links the PI rows to it; `on_cancel` cancels the auto-created PRs (Frappe checks the PI's back links only after `on_cancel`, so no `ignore_links` is needed and other documents linked to the PR still block). Return PIs get a return PR built with `make_return_doc`. Settings live in the `Aqrar Settings` Single; a marker Custom Field on Purchase Receipt ties each auto-PR to its PI.
+**Architecture:** Three doc_events on Purchase Invoice in `aqrar_ext`: `before_validate` forces `update_stock = 0`; `on_submit` builds the PR with ERPNext's own `make_purchase_receipt` mapper (backdated per the date rule), submits it, and links the PI rows to it; `on_cancel` cancels the auto-created PRs (Frappe checks the PI's back links only after `on_cancel`, so no `ignore_links` is needed and other documents linked to the PR still block). Return PIs get a return PR built with `make_return_doc`. Settings live in the `Aqrar Settings` Single; a marker Custom Field on Purchase Receipt ties each auto-PR to its PI. *(Superseded: settings are per Company, Custom Fields on Company; see Tasks 1 and 3.)*
 
 **Tech Stack:** Frappe/ERPNext v15 (local bench: ERPNext 15.121.2 / Frappe 15.120.1), Python, `frappe.tests.utils.FrappeTestCase`.
 
