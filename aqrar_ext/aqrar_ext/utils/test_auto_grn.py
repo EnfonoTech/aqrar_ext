@@ -1,3 +1,5 @@
+import contextlib
+
 import erpnext
 import frappe
 from erpnext.accounts.doctype.purchase_invoice.test_purchase_invoice import make_purchase_invoice
@@ -1145,3 +1147,134 @@ class TestCancelCascade(AutoGrnTestCase):
 			self.assertEqual(frappe.db.get_value("Purchase Receipt", pr_name, "docstatus"), 1)
 		finally:
 			frappe.db.rollback(save_point="auto_grn_lcv")
+
+
+class TestRejectedWarehouseIsNotADependency(AutoGrnTestCase):
+	"""The client does not use Rejected Warehouse.
+
+	A user's default-warehouse permission can fill every Warehouse link on the form,
+	so a PI can carry rejected_warehouse == warehouse. ERPNext only checks that on a
+	PI when it updates stock (auto-GRN forces that off), but always on a Purchase
+	Receipt: the copied value used to stop the auto receipt with "Accepted Warehouse
+	and Rejected Warehouse cannot be same".
+	"""
+
+	def assert_fully_accepted_receipt(self, pi, qty, warehouse=WAREHOUSE):
+		prs = linked_receipts(pi.name)
+		self.assertEqual(len(prs), 1)
+		pr = frappe.get_doc("Purchase Receipt", prs[0].name)
+		self.assertEqual(pr.docstatus, 1)
+		self.assertEqual(pr.items[0].warehouse, warehouse)
+		self.assertFalse(pr.items[0].rejected_warehouse)
+		self.assertFalse(pr.get("rejected_warehouse"))
+		# a stamped from_warehouse would book an outgoing entry and cancel the stock
+		self.assertFalse(pr.items[0].get("from_warehouse"))
+		self.assertEqual(flt(pr.items[0].rejected_qty), 0)
+		self.assertEqual(flt(pr.items[0].qty), qty)
+		self.assertEqual(sle_qty(pr.name), qty)
+
+	def test_row_rejected_warehouse_equal_to_accepted(self):
+		pi = self.make_pi(qty=5, rejected_warehouse=WAREHOUSE)
+		self.assertEqual(pi.items[0].rejected_warehouse, WAREHOUSE)
+		self.assert_fully_accepted_receipt(pi, 5)
+
+	def test_header_rejected_warehouse_equal_to_accepted(self):
+		pi = self.make_pi(qty=5, do_not_submit=True)
+		pi.rejected_warehouse = WAREHOUSE
+		pi.save()
+		pi.submit()
+		self.assert_fully_accepted_receipt(pi, 5)
+
+	def test_rejected_qty_on_invoice_row_does_not_leak_into_receipt(self):
+		# PI hides rejected qty unless it updates stock, but a value can still be on the row.
+		pi = self.make_pi(qty=5, do_not_submit=True)
+		pi.items[0].rejected_qty = 1
+		pi.items[0].rejected_warehouse = WAREHOUSE
+		pi.save()
+		pi.submit()
+		self.assert_fully_accepted_receipt(pi, 5)
+
+	@contextlib.contextmanager
+	def as_permitted_user(self, default_warehouse):
+		"""Run as a real user whose default Warehouse permission is ``default_warehouse``.
+
+		Frappe stamps a user's single/default Warehouse permission into every Warehouse
+		link of a NEW document that does not ignore user permissions. The auto receipt's
+		item rows are new documents, so they used to get rejected_warehouse = that
+		warehouse, and ERPNext refused them ("Accepted Warehouse and Rejected Warehouse
+		cannot be same"). Administrator is exempt from user permissions, so this needs a
+		real user.
+		"""
+		email = "autogrn.perm@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": "AutoGRN",
+					"send_welcome_email": 0,
+					"roles": [{"role": r} for r in ("Accounts User", "Purchase User", "Stock User")],
+				}
+			).insert(ignore_permissions=True)
+		# FrappeTestCase only rolls back at the end of the class: start (and finish) clean
+		frappe.db.delete("User Permission", {"user": email, "allow": "Warehouse"})
+		# the invoice helper also names a supplier warehouse; the user may use it too
+		other = "_Test Warehouse 1 - _TC" if default_warehouse == WAREHOUSE else WAREHOUSE
+		for warehouse, is_default in ((default_warehouse, 1), (other, 0)):
+			frappe.get_doc(
+				{
+					"doctype": "User Permission",
+					"user": email,
+					"allow": "Warehouse",
+					"for_value": warehouse,
+					"is_default": is_default,
+				}
+			).insert(ignore_permissions=True)
+		frappe.clear_cache(user=email)
+
+		frappe.set_user(email)
+		try:
+			yield
+		finally:
+			frappe.set_user("Administrator")
+			frappe.db.delete("User Permission", {"user": email, "allow": "Warehouse"})
+			frappe.clear_cache(user=email)
+
+	def make_pi_as_permitted_user(self, default_warehouse, **kwargs):
+		with self.as_permitted_user(default_warehouse):
+			return self.make_pi(**kwargs)
+
+	def test_user_with_warehouse_permission(self):
+		# the reported case: the user's default warehouse is also the invoice row's warehouse
+		pi = self.make_pi_as_permitted_user(WAREHOUSE, qty=5)
+		self.assert_fully_accepted_receipt(pi, 5)
+
+	def test_user_default_warehouse_does_not_override_invoice_row_warehouse(self):
+		# the Accepted Warehouse is what the invoice row says, not the user's default
+		row_warehouse = "_Test Warehouse 1 - _TC"
+		pi = self.make_pi_as_permitted_user(WAREHOUSE, qty=5, warehouse=row_warehouse)
+		self.assertEqual(pi.items[0].warehouse, row_warehouse)
+		self.assert_fully_accepted_receipt(pi, 5, warehouse=row_warehouse)
+
+	def test_return_as_user_with_warehouse_permission(self):
+		# make_return_doc builds new rows too: the return receipt must not depend on the
+		# rejected warehouse either
+		from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+		with self.as_permitted_user(WAREHOUSE):
+			original = self.make_pi(qty=10)
+			ret = make_return_doc("Purchase Invoice", original.name)
+			ret.items[0].qty = -3
+			ret.items[0].received_qty = -3
+			ret.items[0].stock_qty = -3
+			ret.insert()
+			ret.submit()
+
+		prs = linked_receipts(ret.name)
+		self.assertEqual(len(prs), 1)
+		pr = frappe.get_doc("Purchase Receipt", prs[0].name)
+		self.assertEqual(pr.is_return, 1)
+		self.assertEqual(flt(pr.items[0].qty), -3)
+		self.assertEqual(pr.items[0].warehouse, WAREHOUSE)
+		self.assertFalse(pr.items[0].rejected_warehouse)
+		self.assertEqual(sle_qty(pr.name), -3)

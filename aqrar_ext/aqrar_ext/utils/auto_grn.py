@@ -154,9 +154,33 @@ def _create_forward_grn(pi):
 
 	by_name = {r.name: r for r in rows}
 	expected = _carry_invoice_discount(pr, [(i, by_name[i.purchase_invoice_item]) for i in pr.items], pi)
+	_drop_rejected_warehouse(pr)
 	_stamp(pr, pi)
 	_insert_and_submit(pr, pi, expected)
 	_link_rows(pi, pr)
+
+
+def _drop_rejected_warehouse(pr):
+	"""An auto receipt accepts the whole invoice quantity: no rejected warehouse, no rejected qty.
+
+	The Accepted Warehouse is the warehouse on the invoice row, which the mapper
+	copies and ERPNext never overrides from the header. The rejected side is a
+	different story. Frappe stamps a user's single/default Warehouse permission into
+	every Warehouse link of a NEW document that does not ignore user permissions, and
+	the receipt's item rows are new documents: for such a user ``rejected_warehouse``
+	arrives equal to ``warehouse`` and ERPNext refuses the receipt ("Accepted Warehouse
+	and Rejected Warehouse cannot be same"). A stray ``rejected_qty`` on the invoice
+	row is copied too and would demand a rejected warehouse. Neither belongs on a
+	receipt created from an invoice, so the auto GRN never depends on them.
+
+	Blank string, not None: ``Document.insert`` re-applies the user's defaults to every
+	field that is None (``update_if_missing``), which would put the same warehouse
+	straight back. A blank string is not "missing" and saves as empty.
+	"""
+	pr.rejected_warehouse = ""
+	for item in pr.items:
+		item.rejected_warehouse = ""
+		item.rejected_qty = 0
 
 
 def _carry_invoice_discount(pr, pairs, invoice):
@@ -347,6 +371,7 @@ def _create_return_grn(pi):
 		if not ret.items:
 			continue
 		expected = _carry_invoice_discount(ret, [(i, rows[i.purchase_receipt_item]) for i in ret.items], pi)
+		_drop_rejected_warehouse(ret)
 		_stamp(ret, pi)
 		_not_before_original(ret, pr_name)
 		_insert_and_submit(ret, pi, expected)

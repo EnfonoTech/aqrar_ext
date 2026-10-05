@@ -109,6 +109,11 @@ Tested: 2026-11-29 → 2026-09-01; 2026-11-30 → PI date − 90; result below t
   large-history items.
 - No raw SQL; `_()` on all user text; `cint/flt/getdate` only.
 
+## Warehouses on the auto receipt
+- **Accepted Warehouse** = the warehouse on the invoice row (copied by the mapper; ERPNext never overrides it from the header). Nothing remaps it.
+- **Rejected Warehouse / rejected qty are not used.** An auto receipt accepts the whole invoice quantity, so `rejected_warehouse` (header and rows) is set to a blank string and `rejected_qty` to 0 before insert. Reason: Frappe stamps a user's single/default Warehouse permission into every Warehouse link of a new document that does not ignore user permissions, and the receipt's item rows are new documents, so for such a user `rejected_warehouse` arrived equal to `warehouse` and ERPNext refused the receipt ("Accepted Warehouse and Rejected Warehouse cannot be same", reported in UAT). Blank string, not None: `Document.insert` re-applies defaults to None fields.
+- Administrator is exempt from user permissions, so the tests use a real user with a default Warehouse permission.
+
 ## Known interactions / out of scope
 - **Final GRN (CR-001)** cancels a PR and creates a replacement. A PI row linked to the
   cancelled PR is not re-pointed. Not handled here.
