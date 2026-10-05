@@ -40,12 +40,15 @@ def get_grn_posting_date(pi_posting_date, today_date, start_date, backdate_days)
 
 	today <  start + backdate_days -> start_date
 	today >= start + backdate_days -> pi_posting_date - backdate_days
+
+	The System Start Date is always the floor: the system holds no stock before it,
+	so a PI dated shortly after the start (or entered late) never yields an earlier GRN.
 	"""
 	start = getdate(start_date)
 	days = cint(backdate_days)
 	if getdate(today_date) < getdate(add_days(start, days)):
 		return start
-	return getdate(add_days(getdate(pi_posting_date), -days))
+	return max(start, getdate(add_days(getdate(pi_posting_date), -days)))
 
 
 def is_enabled(company):

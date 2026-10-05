@@ -38,11 +38,23 @@ class TestGrnPostingDate(FrappeTestCase):
 		result = get_grn_posting_date("2027-01-10", "2027-02-01", START, 90)
 		self.assertEqual(result, getdate("2026-10-12"))
 
-	def test_after_cutoff_literal_rule_even_before_start(self):
-		# Rule A is applied literally: a PI dated well before the cutoff entered
-		# after it gets PI date - 90, which can precede the system start date.
+	def test_after_cutoff_never_earlier_than_start_date(self):
+		# The System Start Date is the floor: a PI dated before the cutoff but entered
+		# after it would give PI date - 90 = 2026-07-17, which precedes the system.
 		result = get_grn_posting_date("2026-10-15", "2026-12-15", START, 90)
-		self.assertEqual(result, getdate("2026-07-17"))
+		self.assertEqual(result, getdate("2026-09-01"))
+
+	def test_tester_scenario_30_days_backdated_pi(self):
+		# Reported in UAT: start 2026-09-01, 30 days, PI dated 2026-09-29 entered on
+		# 2026-10-05 (cutoff 2026-10-01 has passed). PI - 30 = 2026-08-30 -> floor.
+		result = get_grn_posting_date("2026-09-29", "2026-10-05", START, 30)
+		self.assertEqual(result, getdate("2026-09-01"))
+
+	def test_floor_does_not_move_dates_already_after_start(self):
+		# On the start date itself, and later, the rule is unchanged.
+		self.assertEqual(get_grn_posting_date("2026-10-01", "2026-12-15", START, 30), getdate("2026-09-01"))
+		self.assertEqual(get_grn_posting_date("2026-10-02", "2026-12-15", START, 30), getdate("2026-09-02"))
+		self.assertEqual(get_grn_posting_date("2027-01-10", "2027-02-01", START, 90), getdate("2026-10-12"))
 
 	def test_backdate_days_is_configurable(self):
 		# cutoff = 2026-09-01 + 10 = 2026-09-11
