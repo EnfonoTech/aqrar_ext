@@ -5,11 +5,7 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "item_display_mode",
-  "auto_grn_section",
-  "auto_grn_enabled",
-  "auto_grn_system_start_date",
-  "auto_grn_backdate_days"
+  "item_display_mode"
  ],
  "fields": [
   {
@@ -19,37 +15,11 @@
    "label": "Default Item Display Mode",
    "options": "Item Name\nItem Code\nItem Name + Description\nItem Code + Description",
    "reqd": 1
-  },
-  {
-   "fieldname": "auto_grn_section",
-   "fieldtype": "Section Break",
-   "label": "Purchase Invoice Auto GRN"
-  },
-  {
-   "default": "0",
-   "description": "On Purchase Invoice submit, create and submit the Purchase Receipt automatically. The invoice then never updates stock itself.",
-   "fieldname": "auto_grn_enabled",
-   "fieldtype": "Check",
-   "label": "Auto-create GRN on Purchase Invoice Submit"
-  },
-  {
-   "default": "2026-09-01",
-   "description": "Until the system is Backdate Days old, every auto GRN is dated this day.",
-   "fieldname": "auto_grn_system_start_date",
-   "fieldtype": "Date",
-   "label": "System Start Date"
-  },
-  {
-   "default": "90",
-   "description": "After that, the auto GRN is dated this many days before the Purchase Invoice posting date.",
-   "fieldname": "auto_grn_backdate_days",
-   "fieldtype": "Int",
-   "label": "GRN Backdate Days"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-04 00:00:00.000000",
+ "modified": "2026-10-05 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Aqrar Ext",
  "name": "Aqrar Settings",

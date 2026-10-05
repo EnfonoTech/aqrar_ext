@@ -19,6 +19,9 @@ COMPANY = "_Test Company"
 STOCK_ITEM = "_Test Item"
 NON_STOCK_ITEM = "_Test Non Stock Item"
 WAREHOUSE = "_Test Warehouse - _TC"
+# Second company for the company-wise tests (USD, its own chart and warehouses).
+OTHER_COMPANY = "_Test Company 1"
+OTHER_WAREHOUSE = "Stores - _TC1"
 
 
 class TestGrnPostingDate(FrappeTestCase):
@@ -61,30 +64,33 @@ class AutoGrnTestCase(FrappeTestCase):
 		frappe.clear_document_cache("Company", COMPANY)
 
 	@staticmethod
-	def ensure_stock_accounts():
-		"""_Test Company is created with perpetual inventory off, so its stock default
-		accounts are blank; fill them from the accounts its chart already has."""
+	def ensure_stock_accounts(company=COMPANY):
+		"""Test companies are created with perpetual inventory off, so their stock
+		default accounts are blank; fill them from the accounts their chart has."""
+		abbr = frappe.get_cached_value("Company", company, "abbr")
 		defaults = {
-			"stock_received_but_not_billed": "Stock Received But Not Billed - _TC",
-			"default_inventory_account": "Stock In Hand - _TC",
-			"stock_adjustment_account": "Stock Adjustment - _TC",
-			"expenses_included_in_valuation": "Expenses Included In Valuation - _TC",
+			"stock_received_but_not_billed": f"Stock Received But Not Billed - {abbr}",
+			"default_inventory_account": f"Stock In Hand - {abbr}",
+			"stock_adjustment_account": f"Stock Adjustment - {abbr}",
+			"expenses_included_in_valuation": f"Expenses Included In Valuation - {abbr}",
 		}
 		for field, account in defaults.items():
-			if not frappe.db.get_value("Company", COMPANY, field):
-				frappe.db.set_value("Company", COMPANY, field, account)
-		frappe.clear_document_cache("Company", COMPANY)
+			if not frappe.db.get_value("Company", company, field) and frappe.db.exists("Account", account):
+				frappe.db.set_value("Company", company, field, account)
+		frappe.clear_document_cache("Company", company)
 
 	@staticmethod
-	def set_rule(enabled=1, start="2026-09-01", days=90):
-		frappe.db.set_single_value(
-			"Aqrar Settings",
+	def set_rule(enabled=1, start="2026-09-01", days=90, company=COMPANY):
+		frappe.db.set_value(
+			"Company",
+			company,
 			{
-				"auto_grn_enabled": enabled,
-				"auto_grn_system_start_date": start,
-				"auto_grn_backdate_days": days,
+				"custom_auto_grn_enabled": enabled,
+				"custom_auto_grn_start_date": start,
+				"custom_auto_grn_backdate_days": days,
 			},
 		)
+		frappe.clear_document_cache("Company", company)
 
 	@staticmethod
 	def make_pi(**kwargs):
@@ -579,6 +585,112 @@ class TestCreateAutoGrn(AutoGrnTestCase):
 		self.assertEqual(ret.update_stock, 0)
 		self.assertEqual(linked_receipts(ret.name), [])
 		self.assertTrue([m for m in frappe.local.message_log if "manually" in str(m)])
+
+
+class TestCompanyWise(AutoGrnTestCase):
+	"""The switch and the date rule are per Company."""
+
+	def setUp(self):
+		super().setUp()
+		self._other_perpetual = frappe.db.get_value("Company", OTHER_COMPANY, "enable_perpetual_inventory")
+		erpnext.set_perpetual_inventory(1, OTHER_COMPANY)
+		self.ensure_stock_accounts(OTHER_COMPANY)
+		self.set_rule(enabled=0, company=OTHER_COMPANY)
+
+	def tearDown(self):
+		self.set_rule(enabled=0, company=OTHER_COMPANY)
+		erpnext.set_perpetual_inventory(self._other_perpetual, OTHER_COMPANY)
+		frappe.clear_document_cache("Company", OTHER_COMPANY)
+		super().tearDown()
+
+	def make_other_pi(self, **kwargs):
+		pi = self.make_pi(
+			company=OTHER_COMPANY,
+			warehouse=OTHER_WAREHOUSE,
+			supplier_warehouse=OTHER_WAREHOUSE,
+			currency="USD",
+			conversion_rate=1,
+			cost_center="Main - _TC1",
+			expense_account="Cost of Goods Sold - _TC1",
+			do_not_save=True,
+			**kwargs,
+		)
+		pi.credit_to = "Creditors - _TC1"
+		pi.insert()
+		pi.submit()
+		return pi
+
+	def test_is_enabled_per_company(self):
+		from aqrar_ext.aqrar_ext.utils.auto_grn import is_enabled
+
+		self.assertTrue(is_enabled(COMPANY))
+		self.assertFalse(is_enabled(OTHER_COMPANY))
+
+	def test_disabled_company_creates_nothing_and_keeps_update_stock(self):
+		pi = self.make_other_pi(update_stock=1)
+		self.assertEqual(pi.update_stock, 1)
+		self.assertEqual(linked_receipts(pi.name), [])
+		self.assertEqual(sle_qty(pi.name), 5)
+		# _Test Company is still on.
+		self.assertEqual(len(linked_receipts(self.make_pi().name)), 1)
+
+	def test_enabled_other_company_while_first_is_disabled(self):
+		self.set_rule(enabled=0)
+		self.set_rule(enabled=1, company=OTHER_COMPANY)
+		other = self.make_other_pi(update_stock=1)
+		self.assertEqual(other.update_stock, 0)
+		prs = linked_receipts(other.name)
+		self.assertEqual(len(prs), 1)
+		self.assertEqual(frappe.db.get_value("Purchase Receipt", prs[0].name, "company"), OTHER_COMPANY)
+		self.assertEqual(flt(srbnb_net(other.name, prs[0].name), 2), 0)
+
+		first = self.make_pi(update_stock=1)
+		self.assertEqual(first.update_stock, 1)
+		self.assertEqual(linked_receipts(first.name), [])
+
+	def test_date_rule_per_company(self):
+		from aqrar_ext.aqrar_ext.utils.auto_grn import get_grn_date_for
+
+		self.set_rule(start="2020-01-01", days=90)  # cutoff passed: PI date - 90
+		self.set_rule(enabled=1, start=frappe.utils.today(), days=30, company=OTHER_COMPANY)  # before cutoff
+		self.assertEqual(
+			get_grn_date_for(frappe._dict(company=COMPANY, posting_date="2026-10-15")), getdate("2026-07-17")
+		)
+		self.assertEqual(
+			get_grn_date_for(frappe._dict(company=OTHER_COMPANY, posting_date="2026-10-15")),
+			getdate(frappe.utils.today()),
+		)
+
+	def test_blank_rule_falls_back_to_defaults(self):
+		from aqrar_ext.aqrar_ext.utils.auto_grn import (
+			DEFAULT_BACKDATE_DAYS,
+			DEFAULT_START_DATE,
+			get_grn_date_for,
+			get_grn_posting_date,
+		)
+
+		frappe.db.set_value("Company", OTHER_COMPANY, "custom_auto_grn_start_date", None)
+		frappe.clear_document_cache("Company", OTHER_COMPANY)
+		self.assertEqual(
+			get_grn_date_for(frappe._dict(company=OTHER_COMPANY, posting_date="2026-10-15")),
+			get_grn_posting_date(
+				"2026-10-15", frappe.utils.today(), DEFAULT_START_DATE, DEFAULT_BACKDATE_DAYS
+			),
+		)
+
+	def save_company_with_days(self, days):
+		company = frappe.get_doc("Company", COMPANY)
+		company.custom_auto_grn_backdate_days = days
+		company.save()
+
+	def test_company_rejects_negative_backdate_days(self):
+		with self.assertRaisesRegex(frappe.ValidationError, "cannot be negative"):
+			self.save_company_with_days(-1)
+
+	def test_company_accepts_zero_and_positive_backdate_days(self):
+		self.save_company_with_days(0)
+		self.save_company_with_days(90)
+		self.assertEqual(frappe.db.get_value("Company", COMPANY, "custom_auto_grn_backdate_days"), 90)
 
 
 class TestNetTotalCheck(FrappeTestCase):

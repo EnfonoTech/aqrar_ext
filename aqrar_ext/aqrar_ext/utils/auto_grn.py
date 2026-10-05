@@ -8,10 +8,15 @@ keep ``update_stock`` and move stock on the invoice: a standalone debit note (no
 backdated: a fixed system start date until the system is ``backdate_days`` old,
 then ``backdate_days`` before the invoice's posting date.
 
-Hooks (registered in hooks.py under doc_events["Purchase Invoice"]):
-  before_validate -> force_no_update_stock
-  on_submit       -> create_auto_grn
-  on_cancel       -> cancel_auto_grn
+The switch and the date rule are per Company (Company form, "Purchase Invoice
+Auto GRN" section). Cancel is driven by the marker on the receipt, so it cascades
+whatever the company's switch says now.
+
+Hooks (registered in hooks.py):
+  Purchase Invoice before_validate -> force_no_update_stock
+  Purchase Invoice on_submit       -> create_auto_grn
+  Purchase Invoice on_cancel       -> cancel_auto_grn
+  Company validate                 -> validate_company_auto_grn
 """
 
 import frappe
@@ -21,8 +26,8 @@ from frappe.utils import add_days, cint, flt, get_datetime, getdate, today
 MARKER_FIELD = "custom_auto_grn_invoice"
 GRN_POSTING_TIME = "00:00:01"
 
-# Used when Aqrar Settings has no stored value yet (a Single's defaults are not
-# materialised until it is first saved).
+# Settings are per Company (Custom Fields, setup_data.py). Used when a company's
+# start date or backdate days is blank.
 DEFAULT_START_DATE = "2026-09-01"
 DEFAULT_BACKDATE_DAYS = 90
 
@@ -40,19 +45,30 @@ def get_grn_posting_date(pi_posting_date, today_date, start_date, backdate_days)
 	return getdate(add_days(getdate(pi_posting_date), -days))
 
 
-def is_enabled():
-	return cint(frappe.db.get_single_value("Aqrar Settings", "auto_grn_enabled"))
+def is_enabled(company):
+	"""Auto GRN switch of the given company (Company.custom_auto_grn_enabled)."""
+	if not company:
+		return False
+	return bool(cint(frappe.get_cached_value("Company", company, "custom_auto_grn_enabled")))
 
 
 def get_grn_date_for(pi):
-	start = frappe.db.get_single_value("Aqrar Settings", "auto_grn_system_start_date")
-	days = frappe.db.get_single_value("Aqrar Settings", "auto_grn_backdate_days")
+	"""GRN posting date for ``pi`` under its own company's rule."""
+	start, days = frappe.get_cached_value(
+		"Company", pi.company, ["custom_auto_grn_start_date", "custom_auto_grn_backdate_days"]
+	)
 	return get_grn_posting_date(
 		pi.posting_date,
 		today(),
 		start or DEFAULT_START_DATE,
 		DEFAULT_BACKDATE_DAYS if days is None else days,
 	)
+
+
+def validate_company_auto_grn(doc, method=None):
+	"""Company validate: the backdate days can't be negative (a future GRN date)."""
+	if cint(doc.get("custom_auto_grn_backdate_days")) < 0:
+		frappe.throw(_("GRN Backdate Days cannot be negative."))
 
 
 def force_no_update_stock(doc, method=None):
@@ -62,7 +78,7 @@ def force_no_update_stock(doc, method=None):
 	account from ``update_stock`` (Stock In Hand vs Stock Received But Not Billed),
 	so it must already be off when that runs.
 	"""
-	if not is_enabled() or not cint(doc.get("update_stock")):
+	if not is_enabled(doc.get("company")) or not cint(doc.get("update_stock")):
 		return
 	# A standalone debit note (no return_against) has no receipt to return
 	# through, so it must take the stock out itself.
@@ -83,7 +99,7 @@ def force_no_update_stock(doc, method=None):
 
 def create_auto_grn(doc, method=None):
 	"""on_submit: book the PI's stock through a Purchase Receipt (or return PR)."""
-	if not is_enabled():
+	if not is_enabled(doc.get("company")):
 		return
 	if cint(doc.get("is_return")):
 		_create_return_grn(doc)
