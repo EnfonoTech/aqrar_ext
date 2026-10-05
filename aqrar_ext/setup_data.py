@@ -494,6 +494,65 @@ CUSTOM_FIELDS.setdefault("Purchase Invoice Item", []).append(
 	}
 )
 
+# Purchase Receipt: the Purchase Invoice that auto-created it
+# (utils/auto_grn.py). Read-only: it is system bookkeeping, and cancel cascades
+# key on it.
+CUSTOM_FIELDS.setdefault("Purchase Receipt", []).append(
+	{
+		"fieldname": "custom_auto_grn_invoice",
+		"label": "Auto GRN From Invoice",
+		"fieldtype": "Link",
+		"options": "Purchase Invoice",
+		"insert_after": "supplier_delivery_note",
+		"read_only": 1,
+		"no_copy": 1,
+		"print_hide": 1,
+		"search_index": 1,
+	}
+)
+
+# Company: Purchase Invoice -> auto Purchase Receipt (GRN) switch and date rule,
+# per company (utils/auto_grn.py). Placed on the Stock tab, after the stock
+# default accounts the feature relies on.
+CUSTOM_FIELDS.setdefault("Company", []).extend(
+	[
+		{
+			"fieldname": "custom_auto_grn_section",
+			"label": "Purchase Invoice Auto GRN",
+			"fieldtype": "Section Break",
+			"insert_after": "expenses_included_in_valuation",
+		},
+		{
+			"fieldname": "custom_auto_grn_enabled",
+			"label": "Auto-create GRN on Purchase Invoice Submit",
+			"fieldtype": "Check",
+			"default": "0",
+			"insert_after": "custom_auto_grn_section",
+			"description": "On Purchase Invoice submit for this company, create and submit the "
+			"Purchase Receipt automatically; the invoice then doesn't move stock itself.",
+		},
+		{
+			"fieldname": "custom_auto_grn_start_date",
+			"label": "System Start Date",
+			"fieldtype": "Date",
+			"default": "2026-09-01",
+			"insert_after": "custom_auto_grn_enabled",
+			"depends_on": "custom_auto_grn_enabled",
+			"description": "Until the system is Backdate Days old, every auto GRN is dated this day.",
+		},
+		{
+			"fieldname": "custom_auto_grn_backdate_days",
+			"label": "GRN Backdate Days",
+			"fieldtype": "Int",
+			"default": "90",
+			"insert_after": "custom_auto_grn_start_date",
+			"depends_on": "custom_auto_grn_enabled",
+			"description": "After that, the auto GRN is dated this many days before the Purchase "
+			"Invoice posting date.",
+		},
+	]
+)
+
 for _dt in _RETURN_QTY_DOCTYPES:
 	CUSTOM_FIELDS.setdefault(_dt, []).extend(dict(field) for field in _RETURN_QTY_FIELDS)
 
