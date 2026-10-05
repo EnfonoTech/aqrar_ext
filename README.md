@@ -46,7 +46,7 @@ Installing without migrating leaves those fields absent.
 | CR-031 | Default UOM locked after first stock movement, audited admin override | `overrides/item.py`, `public/js/item.js` |
 | CR-033 | Pending-approval queue + desk badge | `aqrar_ext/report/work_flow_approval/`, `public/js/workflowapproval.js` |
 | CR-035 | Transaction UOM dropdown limited to the item's own UOMs | `public/js/item_uom_filter.js`, `api/queries.py` |
-| — | Purchase Invoice auto-creates and submits the Purchase Receipt (GRN); the invoice does not update stock (except standalone debit notes and returns of pre-feature invoices that updated stock). Backdated to the system start date for the first 90 days, then PI date − 90 days. Returns and cancels cascade. Off by default; enable under `Aqrar Settings` → "Purchase Invoice Auto GRN" | `aqrar_ext/utils/auto_grn.py`, `Aqrar Settings` (Auto GRN section), `setup_data.py` (`custom_auto_grn_invoice`) |
+| — | Purchase Invoice auto-creates and submits the Purchase Receipt (GRN); the invoice does not update stock (except standalone debit notes and returns of pre-feature invoices that updated stock). Backdated to the system start date for the first 90 days, then PI date − 90 days. Returns and cancels cascade. Per company, off by default; enable on the Company form → Stock tab → "Purchase Invoice Auto GRN" | `aqrar_ext/utils/auto_grn.py`, `setup_data.py` (Company `custom_auto_grn_*` fields, `custom_auto_grn_invoice` on Purchase Receipt) |
 
 ### Not implemented (deliberately)
 

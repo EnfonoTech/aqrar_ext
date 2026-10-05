@@ -22,18 +22,20 @@ standalone debit note (no `return_against`) and a return against a pre-feature P
 ## Components
 Follows existing app conventions (checked in repo): Custom Fields come from
 `setup_data.CUSTOM_FIELDS`, not fixtures; hook functions live in `aqrar_ext/aqrar_ext/utils/`
-and are registered as `_X_HOOK` constants in `hooks.py`; settings live in the
-`Aqrar Settings` Single DocType.
+and are registered as `_X_HOOK` constants in `hooks.py`. Settings are **per Company**:
+Custom Fields on Company (product owner decision; they first lived in the `Aqrar Settings`
+Single, which no longer has them).
 
 | Piece | Where |
 |---|---|
 | Hook logic | new `aqrar_ext/aqrar_ext/utils/auto_grn.py` |
-| Registration | `hooks.py` → `doc_events["Purchase Invoice"]`: `before_validate` += `force_no_update_stock`; `on_submit` += `create_auto_grn`; `on_cancel` = `cancel_auto_grn` |
-| Settings | `Aqrar Settings` += `auto_grn_enabled` (Check, default 0), `auto_grn_system_start_date` (Date, 2026-09-01), `auto_grn_backdate_days` (Int, 90) |
+| Registration | `hooks.py` → `doc_events["Purchase Invoice"]`: `before_validate` += `force_no_update_stock`; `on_submit` += `create_auto_grn`; `on_cancel` = `cancel_auto_grn`. `doc_events["Company"]["validate"]` = `validate_company_auto_grn` (backdate days ≥ 0) |
+| Settings | Company Custom Fields via `setup_data.CUSTOM_FIELDS["Company"]`, Stock tab after `expenses_included_in_valuation`: section `custom_auto_grn_section` "Purchase Invoice Auto GRN", `custom_auto_grn_enabled` (Check, default 0), `custom_auto_grn_start_date` (Date, 2026-09-01), `custom_auto_grn_backdate_days` (Int, 90). Every read uses the PI's own company; blank start date falls back to 2026-09-01. Cancel is marker-driven, so it cascades even after a company is switched off |
 | Marker | Custom Field `Purchase Receipt-custom_auto_grn_invoice` (Link → Purchase Invoice, read-only, no_copy) via `setup_data.CUSTOM_FIELDS` |
 | Tests | `aqrar_ext/aqrar_ext/utils/test_auto_grn.py` (pure date fn) + integration tests |
 
-Feature ships **disabled**; enable per site after UAT.
+Feature ships **disabled for every company**; enable per company (Company form → Stock tab →
+"Purchase Invoice Auto GRN") after UAT.
 
 ## Flow
 **before_validate** — if enabled and the PI has any stock item row: `doc.update_stock = 0`.

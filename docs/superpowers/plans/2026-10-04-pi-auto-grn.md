@@ -91,6 +91,8 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 
 ### Task 1: Settings fields
 
+> **Superseded:** the settings are now company-wise Custom Fields on Company (`custom_auto_grn_enabled`, `custom_auto_grn_start_date`, `custom_auto_grn_backdate_days`, added by `setup_data.py`); these Aqrar Settings fields were removed. Kept for history.
+
 **Files:**
 - Modify: `aqrar_ext/aqrar_ext/doctype/aqrar_settings/aqrar_settings.json`
 
@@ -268,6 +270,8 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 3: Marker Custom Field + settings reader
+
+> **Superseded (settings reader):** `is_enabled(company)` and `get_grn_date_for(pi)` now read the PI's Company fields, not Aqrar Settings. The marker field below is unchanged. Kept for history.
 
 **Files:**
 - Modify: `aqrar_ext/setup_data.py` (insert directly above the line `for _dt in _RETURN_QTY_DOCTYPES:` near line 497)
