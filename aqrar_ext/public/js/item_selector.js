@@ -287,8 +287,8 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         // Column widths shift slightly when a UOM selector is shown (not every
         // child doctype has a "uom" field — e.g. Custom Quote Item doesn't).
         var w = this.uom_field
-            ? { category: 12, item_name: 20, item_code: 14, stock: 12, price: 10, uom: 10, qty: 14, action: 8 }
-            : { category: 14, item_name: 26, item_code: 16, stock: 12, price: 10, uom: 0, qty: 14, action: 8 };
+            ? { category: 9, item_name: 25, item_code: 12, stock: 12, price: 10, uom: 10, qty: 14, action: 8 }
+            : { category: 10, item_name: 33, item_code: 13, stock: 12, price: 10, uom: 0, qty: 14, action: 8 };
 
         if (!append) {
             // Build table header
@@ -328,9 +328,12 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                     '<span style="flex:0 0 ' + w.category + '%; max-width:' + w.category + '%; min-width:0;' +
                         ' overflow:hidden; white-space:nowrap; display:block; padding-right:6px; box-sizing:border-box;"' +
                         ' class="text-muted item-group-cell" data-item="' + code_attr + '">...</span>' +
+                    // Item Name is shown in full and wraps onto further lines: users
+                    // tell similar items apart by the end of the name (size, pack,
+                    // brand), which truncation cut off.
                     '<span style="flex:0 0 ' + w.item_name + '%; max-width:' + w.item_name + '%; min-width:0;' +
-                        ' overflow:hidden; white-space:nowrap; display:block; padding-right:6px; box-sizing:border-box;"' +
-                        ' title="' + code_attr + ' - ' + aqrar_escape(item_name) + '">' + aqrar_escape(aqrar_truncate(item_name, 32)) + '</span>' +
+                        ' white-space:normal; overflow-wrap:anywhere; display:block; padding-right:6px; box-sizing:border-box;"' +
+                        ' title="' + code_attr + ' - ' + aqrar_escape(item_name) + '">' + aqrar_escape(item_name) + '</span>' +
                     '<span style="flex:0 0 ' + w.item_code + '%; max-width:' + w.item_code + '%; min-width:0;' +
                         ' overflow:hidden; white-space:nowrap; display:block; padding-right:6px; box-sizing:border-box;"' +
                         ' title="' + code_attr + '"><b>' + aqrar_escape(aqrar_truncate(item_code, 16)) + '</b></span>' +
