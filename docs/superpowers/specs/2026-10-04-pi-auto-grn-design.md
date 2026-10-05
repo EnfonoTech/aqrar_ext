@@ -11,7 +11,7 @@ standalone debit note (no `return_against`) and a return against a pre-feature P
 ## Decisions (agreed with requester)
 1. **Date rule (A).** `system_start = 2026-09-01`, `cutoff = start + 90 days = 2026-11-30`.
    - `today < cutoff` → PR posting date = `2026-09-01` (regardless of PI date).
-   - `today >= cutoff` → PR posting date = PI posting date − 90 days.
+   - `today >= cutoff` → PR posting date = PI posting date − 90 days, **but never earlier than the System Start Date** (floor, added after UAT: start 2026-09-01, 30 days, PI 2026-09-29 entered 2026-10-05 gave 2026-08-30; now 2026-09-01).
 2. **Inside PI submit.** PR is created in `before_submit`, same transaction. Any failure
    throws and rolls the PI submit back. No background queue.
 3. **Existing PR link / `update_stock`.** Rows already carrying `purchase_receipt` +
@@ -98,7 +98,7 @@ blocked with its message (intended — stock cannot vanish under sales).
 
 ## Date function
 `get_grn_posting_date(today, settings) -> date`, pure, no DB. Uses `getdate`, `add_days`.
-Tested: 2026-11-29 → 2026-09-01; 2026-11-30 → PI date − 90; PI date before start date.
+Tested: 2026-11-29 → 2026-09-01; 2026-11-30 → PI date − 90; result below the start date → start date (floor).
 
 ## Safety
 - Idempotent: the forward path skips rows that already carry `pr_detail` or are fully
