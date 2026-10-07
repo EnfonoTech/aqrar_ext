@@ -46,6 +46,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/sales_invoice_return.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/return_qty_positive.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/purchase_invoice_selling_price.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/purchase_invoice_backdate_stock.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_branch_price_list.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_row_price_list.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_admin_update_stock.js?v={_ASSET_V}",
@@ -86,6 +87,7 @@ override_doctype_class = {
 	"Item": "aqrar_ext.overrides.item.CustomItem",
 	"Quotation": "aqrar_ext.overrides.quotation.CustomQuotation",
 	"Sales Invoice": "aqrar_ext.overrides.sales_invoice.CustomSalesInvoice",
+	"Purchase Invoice": "aqrar_ext.overrides.purchase_invoice.CustomPurchaseInvoice",
 }
 
 # Document events
