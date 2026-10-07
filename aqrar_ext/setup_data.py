@@ -553,6 +553,52 @@ CUSTOM_FIELDS.setdefault("Company", []).extend(
 	]
 )
 
+# Back-date Stock: when a Purchase Invoice row's goods physically arrived before
+# the invoice. overrides/purchase_invoice.py posts that row's stock and its
+# Stock In Hand value at this time; utils/backdate_stock.py sets it.
+CUSTOM_FIELDS.setdefault("Purchase Invoice Item", []).append(
+	{
+		"fieldname": "custom_stock_posting_datetime",
+		"label": "Stock-in Date",
+		"fieldtype": "Datetime",
+		"insert_after": "warehouse",
+		"read_only": 1,
+		"allow_on_submit": 1,
+		"no_copy": 1,
+		"print_hide": 1,
+	}
+)
+
+# Back-date Stock is off until switched on here, and only the roles listed
+# here may use it (utils/backdate_stock.get_settings).
+CUSTOM_FIELDS.setdefault("Stock Reposting Settings", []).extend(
+	[
+		{
+			"fieldname": "custom_backdate_stock_section",
+			"label": "Back-date Stock (Purchase Invoice)",
+			"fieldtype": "Section Break",
+			"insert_after": "notify_reposting_error_to_role",
+		},
+		{
+			"fieldname": "custom_enable_backdate_stock",
+			"label": "Enable Back-date Stock",
+			"fieldtype": "Check",
+			"default": "0",
+			"insert_after": "custom_backdate_stock_section",
+			"description": "Allow moving the stock-in of items on a submitted Purchase Invoice (Update Stock) to an earlier date.",
+		},
+		{
+			"fieldname": "custom_backdate_stock_roles",
+			"label": "Roles Allowed to Back-date Stock",
+			"fieldtype": "Table MultiSelect",
+			"options": "Has Role",
+			"insert_after": "custom_enable_backdate_stock",
+			"depends_on": "custom_enable_backdate_stock",
+			"description": "Only users with one of these roles see the Back-date Stock button.",
+		},
+	]
+)
+
 for _dt in _RETURN_QTY_DOCTYPES:
 	CUSTOM_FIELDS.setdefault(_dt, []).extend(dict(field) for field in _RETURN_QTY_FIELDS)
 

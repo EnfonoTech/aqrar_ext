@@ -155,9 +155,34 @@
         row[RETURNED_QTY] = flt(returned) / factor;
     }
 
+    // Editing qty on a row ERPNext does not see as "mapped" re-fetches the price
+    // list rate and rebuilds the rate from it plus the row's old margin. ERPNext's
+    // list (transaction.js is_a_mapped_document) knows the return reference of
+    // Sales Invoice, Delivery Note and Purchase Receipt rows but not of Purchase
+    // Invoice or POS Invoice rows, so typing a Return Qty there turned an invoiced
+    // 300 into 500. A return row carrying its original row's reference is mapped:
+    // it keeps the invoiced rate.
+    function patch_mapped_check(frm) {
+        const cscript = frm.cscript;
+        if (!cscript || !cscript.is_a_mapped_document || cscript.aqrar_return_mapped_patched) return;
+        const core = cscript.is_a_mapped_document;
+        const reference_field = DOCTYPES[frm.doctype][1];
+        cscript.is_a_mapped_document = function (item) {
+            if (item && this.frm.doc.is_return && item[reference_field]) return true;
+            return core.call(this, item);
+        };
+        cscript.aqrar_return_mapped_patched = true;
+    }
+
     const parent_handlers = {
-        onload: fill_return_columns,
-        refresh: setup_return_columns,
+        onload(frm) {
+            patch_mapped_check(frm);
+            return fill_return_columns(frm);
+        },
+        refresh(frm) {
+            patch_mapped_check(frm);
+            setup_return_columns(frm);
+        },
         is_return(frm) {
             fill_return_columns(frm);
             setup_return_columns(frm);
