@@ -1,4 +1,4 @@
-// Warn the moment a rate is typed below cost, on Quotation, Delivery Note and
+// Warn the moment a rate is typed below cost, on Quotation, Sales Order and
 // Sales Invoice. The hard block is server-side in
 // aqrar_ext/aqrar_ext/utils/valuation_floor.py — this only saves the user from
 // finding out at save time.
@@ -12,14 +12,13 @@
 
 const SELLING_ITEM_DOCTYPES = [
     "Quotation Item",
-    "Delivery Note Item",
+    "Sales Order Item",
     "Sales Invoice Item",
 ];
 
 function check_valuation_floor(frm, cdt, cdn) {
     const row = locals[cdt][cdn];
     if (!row || !row.item_code || row.is_free_item) return;
-    if (!(flt(row.rate) > 0)) return;
     // A credit note's rate is pinned to the invoice it reverses; the server
     // skips returns for the same reason.
     if (frm.doc.is_return) return;
@@ -49,6 +48,27 @@ function check_valuation_floor(frm, cdt, cdn) {
             });
         },
     });
+}
+
+// "Override Below Cost Price" is shown only to users who were explicitly given the
+// Price Override role. Permission levels alone are not enough: Administrator
+// implicitly holds every role and would always see it.
+let price_override_allowed = null;
+
+function toggle_below_cost_override(frm) {
+    const apply = () => frm.toggle_display("custom_override_below_cost", !!price_override_allowed);
+    if (price_override_allowed !== null) return apply();
+    frappe.call({
+        method: "aqrar_ext.aqrar_ext.utils.valuation_floor.has_price_override_role",
+        callback(r) {
+            price_override_allowed = !!(r && r.message);
+            apply();
+        },
+    });
+}
+
+for (const parent_doctype of ["Quotation", "Sales Order", "Sales Invoice"]) {
+    frappe.ui.form.on(parent_doctype, { refresh: toggle_below_cost_override });
 }
 
 for (const child_doctype of SELLING_ITEM_DOCTYPES) {

@@ -436,9 +436,166 @@ def _seed_from_fixture(filename, doctype, title_field):
 		doc.insert(ignore_permissions=True)
 
 
+# A grid only renders list-view columns while their widths sum to <= 10; anything
+# past that is silently dropped. Each table below sums to exactly 10 with the
+# Valuation Rate and Price List Rate columns included.
+VALUATION_RATE_CHILD_DOCTYPES = (
+	"Sales Invoice Item",
+	"Quotation Item",
+	"Sales Order Item",
+	"Delivery Note Item",
+	"Purchase Invoice Item",
+	"Purchase Order Item",
+	"Purchase Receipt Item",
+	"Stock Entry Detail",
+)
+VALUATION_GRID_WIDTHS = {
+	"Sales Invoice Item": {"item_code": 2, "custom_price_list": 2, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "amount": 1},
+	"Quotation Item": {"item_code": 2, "custom_price_list": 2, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "amount": 1},
+	"Sales Order Item": {"item_code": 2, "custom_price_list": 1, "delivery_date": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "amount": 1},
+	"Delivery Note Item": {"item_code": 3, "custom_price_list": 2, "qty": 1, "price_list_rate": 1, "custom_valuation_rate": 1, "amount": 1},
+	"Purchase Invoice Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_standard_selling_rate": 1, "amount": 1},
+	"Purchase Order Item": {"item_code": 2, "schedule_date": 1, "qty": 1, "uom": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "amount": 1},
+	"Purchase Receipt Item": {"item_code": 2, "qty": 1, "rejected_qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "amount": 1, "net_amount": 1},
+}
+
+
+def ensure_valuation_rate_grid_widths():
+	"""Show Price List Rate in each item grid and size the columns so they all fit.
+	A width an implementer set by hand (a non-system-generated Property Setter) is
+	never overridden."""
+	for doctype, widths in VALUATION_GRID_WIDTHS.items():
+		if not frappe.db.exists("DocType", doctype):
+			continue
+		props = [("price_list_rate", "in_list_view", 1, "Check")]
+		props += [(f, "columns", w, "Int") for f, w in widths.items()]
+		for fieldname, prop, value, ptype in props:
+			if frappe.db.exists(
+				"Property Setter",
+				{"doc_type": doctype, "field_name": fieldname, "property": prop, "is_system_generated": 0},
+			):
+				continue
+			frappe.make_property_setter(
+				{
+					"doctype": doctype,
+					"fieldname": fieldname,
+					"property": prop,
+					"value": value,
+					"property_type": ptype,
+				},
+				is_system_generated=True,
+			)
+		frappe.clear_cache(doctype=doctype)
+
+
+# Payment-popup amounts recorded on the invoice itself (see
+# public/js/sales_invoice_pos_total_popup.js): one row per mode, plus what is left.
+CUSTOM_FIELDS.setdefault("Sales Invoice", []).extend(
+	[
+		{
+			# Bottom of the Payments tab.
+			"fieldname": "custom_payment_details_section",
+			"label": "Payment Popup Details",
+			"fieldtype": "Section Break",
+			"insert_after": "loyalty_redemption_cost_center",
+		},
+		{
+			"fieldname": "custom_payment_details",
+			"label": "Payment Details",
+			"fieldtype": "Table",
+			"options": "Sales Invoice Payment Detail",
+			"insert_after": "custom_payment_details_section",
+			# Not read_only: Frappe hides a read-only table while it is empty, so the
+			# table would be invisible until the popup had filled it. The JS locks
+			# adding/deleting rows instead.
+			"no_copy": 1,
+			"print_hide": 1,
+			"description": "Amounts entered in the payment popup. Filled by the popup, not by hand.",
+		},
+		{
+			"fieldname": "custom_payment_remaining",
+			"label": "Remaining",
+			"fieldtype": "Currency",
+			"insert_after": "custom_payment_details",
+			"read_only": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+			"description": "Left unpaid after the amounts entered in the payment popup.",
+		},
+	]
+)
+
+PRICE_OVERRIDE_ROLE = "Price Override"
+PRICE_OVERRIDE_DOCTYPES = ("Sales Invoice", "Quotation", "Sales Order")
+
+
+def ensure_price_override_role():
+	"""Only users holding this role can see or tick 'Override Below Cost Price'
+	(a permlevel-2 field) and so save under the item's valuation rate. It is a
+	separate checkbox from 'Override Minimum Price' (the selling-rate-band
+	override, permlevel 1), so granting one never grants the other."""
+	from frappe.permissions import add_permission, update_permission_property
+
+	if not frappe.db.exists("Role", PRICE_OVERRIDE_ROLE):
+		frappe.get_doc(
+			{"doctype": "Role", "role_name": PRICE_OVERRIDE_ROLE, "desk_access": 1}
+		).insert(ignore_permissions=True)
+
+	for doctype in PRICE_OVERRIDE_DOCTYPES:
+		add_permission(doctype, PRICE_OVERRIDE_ROLE, 2)
+		update_permission_property(doctype, PRICE_OVERRIDE_ROLE, 2, "read", 1)
+		update_permission_property(doctype, PRICE_OVERRIDE_ROLE, 2, "write", 1)
+
+
+def undo_price_override_on_minimum_price():
+	"""An earlier revision reused 'Override Minimum Price' for the below-cost check
+	and restricted it to Price Override. Give that checkbox back to the roles it
+	had (Accounts Manager, All) and drop the stray fields it added elsewhere."""
+	from frappe.permissions import update_permission_property
+
+	for role in ("Accounts Manager", "All"):
+		if frappe.db.exists("Custom DocPerm", {"parent": "Sales Invoice", "role": role, "permlevel": 1}):
+			update_permission_property("Sales Invoice", role, 1, "read", 1)
+			update_permission_property("Sales Invoice", role, 1, "write", 1)
+
+	for doctype in PRICE_OVERRIDE_DOCTYPES:
+		frappe.db.delete(
+			"Custom DocPerm",
+			{"parent": doctype, "role": PRICE_OVERRIDE_ROLE, "permlevel": 1},
+		)
+	# Delivery Note no longer has a below-cost check, so neither the stray
+	# minimum-price field nor the override checkbox belongs there.
+	for fieldname in ("custom_override_minimum_price", "custom_override_below_cost"):
+		name = f"Delivery Note-{fieldname}"
+		if frappe.db.exists("Custom Field", name):
+			frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)
+	frappe.db.delete("Custom DocPerm", {"parent": "Delivery Note", "role": PRICE_OVERRIDE_ROLE})
+	name = "Quotation-custom_override_minimum_price"
+	if frappe.db.exists("Custom Field", name):
+		frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)
+	frappe.clear_cache()
+
+
+def relocate_payment_details():
+	"""Move the Payment Details table (first created under Payment Mode, read-only
+	and so hidden while empty) into its own section at the bottom of the Payments
+	tab. ensure_custom_fields never rewrites an existing field, hence this."""
+	name = "Sales Invoice-custom_payment_details"
+	if not frappe.db.exists("Custom Field", name):
+		return
+	frappe.db.set_value(
+		"Custom Field", name, {"read_only": 0, "insert_after": "custom_payment_details_section"}
+	)
+	frappe.clear_cache(doctype="Sales Invoice")
+
+
 def create():
 	"""Entry point for hooks.after_migrate."""
 	ensure_custom_fields()
+	ensure_valuation_rate_grid_widths()
+	relocate_payment_details()
+	undo_price_override_on_minimum_price()
+	ensure_price_override_role()
 	enforce_sales_person_permission_flag()
 	ensure_temporary_item_naming_series()
 	check_expected_modes_of_payment()
@@ -598,6 +755,44 @@ CUSTOM_FIELDS.setdefault("Stock Reposting Settings", []).extend(
 		},
 	]
 )
+
+# Separate from "Override Minimum Price" (the selling-rate-band override): this one
+# bypasses only the below-valuation-rate check, and sits at permlevel 2 so it is
+# visible only to the Price Override role.
+for _dt, _after in (
+	("Sales Invoice", "custom_override_minimum_price"),
+	("Quotation", "party_name"),
+	("Sales Order", "customer"),
+):
+	CUSTOM_FIELDS.setdefault(_dt, []).append(
+		{
+			"fieldname": "custom_override_below_cost",
+			"label": "Override Below Cost Price",
+			"fieldtype": "Check",
+			"insert_after": _after,
+			"default": "0",
+			"permlevel": 2,
+			"no_copy": 1,
+			"print_hide": 1,
+			"description": "If checked, the below-cost (valuation rate) check is bypassed for this document.",
+		}
+	)
+
+for _dt in VALUATION_RATE_CHILD_DOCTYPES:
+	# Cost of the row's item; filled by item_valuation_rate.js.
+	CUSTOM_FIELDS.setdefault(_dt, []).append(
+		{
+			"fieldname": "custom_valuation_rate",
+			"label": "Valuation Rate",
+			"fieldtype": "Currency",
+			"insert_after": "basic_rate" if _dt == "Stock Entry Detail" else "rate",
+			"read_only": 1,
+			"no_copy": 1,
+			"in_list_view": 1,
+			"columns": 1,
+			"print_hide": 1,
+		}
+	)
 
 for _dt in _RETURN_QTY_DOCTYPES:
 	CUSTOM_FIELDS.setdefault(_dt, []).extend(dict(field) for field in _RETURN_QTY_FIELDS)

@@ -59,6 +59,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/item_rate_tracking.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_person_default.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/valuation_floor.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/item_valuation_rate.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/cash_customer.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/customer_statement.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/material_request_custom.js?v={_ASSET_V}",
@@ -145,18 +146,21 @@ doc_events = {
 			"aqrar_ext.overrides.delivery_note.set_valuation_rate",
 			_RETURN_UOM_HOOK,
 		],
-		"validate": [_COST_CENTER_HOOK, _VALUATION_FLOOR_HOOK],
+		"validate": _COST_CENTER_HOOK,
 	},
 	"Sales Order": {
 		"before_validate": "aqrar_ext.aqrar_ext.utils.sales_team.set_sales_team",
-		"validate": _COST_CENTER_HOOK,
+		"validate": [_COST_CENTER_HOOK, _VALUATION_FLOOR_HOOK],
 	},
 	# Quotation's cost_center is provisioned by setup_data, not shipped by
 	# ERPNext, so nothing populates the header without this. ERPNext fills the
 	# item rows from Item/Company defaults but knows nothing about the header.
 	"Quotation": {"validate": [_COST_CENTER_HOOK, _VALUATION_FLOOR_HOOK]},
 	"Purchase Order": {"validate": _COST_CENTER_HOOK},
-	"Stock Entry": {"validate": _COST_CENTER_HOOK},
+	"Stock Entry": {
+		"before_validate": "aqrar_ext.events.material_request.set_stock_entry_warehouse_qty",
+		"validate": _COST_CENTER_HOOK,
+	},
 	"Payment Entry": {"validate": _COST_CENTER_HOOK},
 	"Sales Invoice": {
 		# before_validate, not validate: ERPNext computes allocated_amount inside

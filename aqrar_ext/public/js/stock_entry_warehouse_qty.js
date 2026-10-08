@@ -26,6 +26,18 @@ function se_refresh_row(frm, cdt, cdn) {
 }
 
 frappe.ui.form.on("Stock Entry", {
+    // Rows mapped from a Material Request never fire item_code, so fill the
+    // quantities as soon as the draft opens (before it is first saved).
+    refresh(frm) {
+        if (frm.doc.docstatus !== 0) return;
+        (frm.doc.items || []).forEach(function (row) {
+            if (row.item_code && ((row.s_warehouse && row.custom_source_warehouse_qty == null)
+                || (row.t_warehouse && row.custom_target_warehouse_qty == null)
+                || (!flt(row.custom_source_warehouse_qty) && !flt(row.custom_target_warehouse_qty)))) {
+                se_refresh_row(frm, row.doctype, row.name);
+            }
+        });
+    },
     posting_date(frm) {
         (frm.doc.items || []).forEach(function (row) {
             se_refresh_row(frm, row.doctype, row.name);

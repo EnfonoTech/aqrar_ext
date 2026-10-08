@@ -21,7 +21,8 @@ currency the user is typing in.
 
 Rows skipped, each for a reason:
   * free items — a sample at 0 is not a pricing mistake
-  * a zero or blank rate — same, and it is usually a half-typed row
+  * (a zero rate is NOT skipped: selling at 0 is below cost, so it is warned and
+    blocked like any other rate unless the row is marked a free item)
   * returns — a credit note's rate is pinned to the invoice it reverses, and
     ERPNext already refuses a rate above it. Blocking one for being below today's
     cost would make a legitimate return unsaveable.
@@ -35,6 +36,24 @@ from frappe.utils import flt, fmt_money
 # The same figure the Price Assist Cost tile shows. Imported rather than
 # reimplemented so the two can never drift apart.
 from aqrar_ext.api.item_insights import _valuation_rate
+
+
+PRICE_OVERRIDE_ROLE = "Price Override"
+
+
+@frappe.whitelist()
+def has_price_override_role(user=None):
+	"""True only when the role is actually assigned to the user.
+
+	frappe.get_roles() is no use here: it hands the Administrator account every
+	role there is, so Administrator would always pass. Reading the Has Role rows
+	means the override belongs to the users it was explicitly given to."""
+	user = user or frappe.session.user
+	return bool(
+		frappe.db.exists(
+			"Has Role", {"parent": user, "parenttype": "User", "role": PRICE_OVERRIDE_ROLE}
+		)
+	)
 
 
 def item_cost(item_code, warehouse=None, company=None):
@@ -76,6 +95,12 @@ def validate_valuation_floor(doc, method=None):
 	if doc.get("is_return"):
 		return
 
+	# "Override Below Cost Price" is a permlevel-2 field: only the Price Override
+	# role can see or tick it (setup_data.ensure_price_override_role). It is
+	# separate from "Override Minimum Price", which governs the selling-rate band.
+	if doc.get("custom_override_below_cost") and has_price_override_role():
+		return
+
 	company = doc.get("company")
 	parent_warehouse = doc.get("set_warehouse")
 
@@ -93,9 +118,8 @@ def validate_valuation_floor(doc, method=None):
 		if not item.get("item_code") or item.get("is_free_item"):
 			continue
 
+		# A zero rate is below cost too (free items are skipped above).
 		rate = flt(item.get("base_net_rate"))
-		if rate <= 0:
-			continue
 
 		if not frappe.get_cached_value("Item", item.item_code, "is_stock_item"):
 			continue

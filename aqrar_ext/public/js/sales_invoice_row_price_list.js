@@ -87,6 +87,14 @@ Object.keys(AQRAR_ROW_PL_DOCTYPES).forEach(function (parent_dt) {
 	});
 
 	frappe.ui.form.on(parent_dt, {
+		// Selling documents offer only selling Price Lists, Purchase Invoice only
+		// buying ones (the Selling / Buying checkboxes on the Price List).
+		setup: function (frm) {
+			const flag = parent_dt === "Purchase Invoice" ? "buying" : "selling";
+			frm.set_query("custom_price_list", "items", function () {
+				return { filters: { [flag]: 1, enabled: 1 } };
+			});
+		},
 		selling_price_list: aqrar_reapply_row_price_lists,
 		buying_price_list: aqrar_reapply_row_price_lists,
 	});
