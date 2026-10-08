@@ -114,3 +114,19 @@ def reopen_material_request(mr_name):
 	doc.add_comment("Info", _("Reopened as {0}").format(status))
 
 	return {"status": status}
+
+
+def set_stock_entry_warehouse_qty(doc, method=None):
+	"""Stock Entry before_validate: snapshot source/target warehouse qty on every
+	row as of the posting date, so entries created from a Material Request (which
+	bypass the client-side item_code trigger) are filled on save too."""
+	if doc.docstatus != 0:
+		return
+
+	for row in doc.get("items") or []:
+		row.custom_source_warehouse_qty = get_warehouse_qty(
+			row.item_code, row.s_warehouse, doc.get("posting_date")
+		)
+		row.custom_target_warehouse_qty = get_warehouse_qty(
+			row.item_code, row.t_warehouse, doc.get("posting_date")
+		)

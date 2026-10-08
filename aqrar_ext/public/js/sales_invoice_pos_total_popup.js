@@ -61,6 +61,43 @@ function aqrar_is_cheque(frm) {
 	return frm.doc.custom_payment_mode === "Cheque";
 }
 
+// Amounts typed into the popup are recorded on the invoice itself, in the Payment
+// Details table, so the Submit-time popup opens with them and they stay visible on
+// the form. The table is informational: the payments are still created from what
+// is typed into the popup.
+function aqrar_get_saved_payments(frm) {
+	const amounts = {};
+	(frm.doc.custom_payment_details || []).forEach(function (row) {
+		if (row.mode_of_payment) amounts[row.mode_of_payment] = flt(row.amount);
+	});
+	return amounts;
+}
+
+function aqrar_set_saved_payments(frm, amounts, remaining) {
+	frm.clear_table("custom_payment_details");
+	Object.keys(amounts).forEach(function (mode) {
+		const row = frm.add_child("custom_payment_details");
+		row.mode_of_payment = mode;
+		row.amount = amounts[mode];
+	});
+	frm.set_value("custom_payment_remaining", flt(remaining));
+	frm.refresh_field("custom_payment_details");
+}
+
+function aqrar_clear_saved_payments(frm) {
+	aqrar_set_saved_payments(frm, {}, 0);
+}
+
+// Save the draft without the payment popup opening again.
+function aqrar_save_quietly(frm) {
+	frappe.flags.aqrar_skip_payment_popup = true;
+	return frm.save().finally(function () {
+		setTimeout(function () {
+			delete frappe.flags.aqrar_skip_payment_popup;
+		}, 500);
+	});
+}
+
 function aqrar_submit_and_print(frm) {
 	return frm.save("Submit").then(function () {
 		if (frm.doc.docstatus === 1) {
@@ -72,6 +109,16 @@ function aqrar_submit_and_print(frm) {
 
 frappe.ui.form.on("Sales Invoice", {
 	refresh: function (frm) {
+		// Payment Details is filled by the payment popup only: no hand-added or
+		// deleted rows (it is not read-only, because Frappe hides an empty one).
+		const grid = frm.fields_dict.custom_payment_details && frm.fields_dict.custom_payment_details.grid;
+		if (grid) {
+			grid.cannot_add_rows = true;
+			grid.cannot_delete_rows = true;
+			grid.wrapper.find(".grid-add-row, .grid-remove-rows").hide();
+			frm.refresh_field("custom_payment_details");
+		}
+
 		// Collect against an ALREADY SUBMITTED invoice. The popup otherwise only
 		// fires at submit time, so an invoice submitted on Credit (or any invoice
 		// left part-paid) had no way back to it -- the money had to be taken
@@ -127,47 +174,12 @@ frappe.ui.form.on("Sales Invoice", {
 		if (frm.doc.docstatus !== 0) return;
 		if (!frm.doc.name || String(frm.doc.name).startsWith("new-")) return;
 
-		if (aqrar_is_credit(frm)) {
-			if (frappe.flags.aqrar_credit_confirm_open) return;
-			frappe.flags.aqrar_credit_confirm_open = true;
-			const d = frappe.confirm(
-				__("Do you want to Submit this Sales Invoice now?"),
-				function () {
-					frappe.flags.aqrar_skip_payment_popup = true;
-					aqrar_submit_and_print(frm).finally(function () {
-						setTimeout(function () {
-							delete frappe.flags.aqrar_skip_payment_popup;
-						}, 500);
-					});
-				},
-				function () {
-					// No: the invoice stays a draft, but the customer still needs
-					// the printout — a credit sale is handed over before it is
-					// submitted. Yes prints too, via aqrar_submit_and_print.
-					aqrar_open_invoice_print(frm);
-				}
-			);
-			if (d) {
-				// frappe.confirm implements its reject_action THROUGH d.onhide
-				// (frappe/ui/messages.js): assigning onhide here would silently
-				// discard the No callback, which is why No never printed. Chain
-				// onto it instead of replacing it.
-				const on_reject = d.onhide;
-				d.onhide = function () {
-					if (on_reject) on_reject();
-					delete frappe.flags.aqrar_credit_confirm_open;
-				};
-			}
-			return;
-		}
-
 		if (!frm.doc.grand_total || Math.abs(flt(frm.doc.grand_total)) <= 0) return;
 		if (Math.abs(flt(frm.doc.outstanding_amount)) <= 0) return;
 
-		if (aqrar_is_cheque(frm)) {
-			aqrar_show_pdc_popup(frm);
-			return;
-		}
+		// Every payment mode gets the same payment-options popup after Save
+		// (Credit and Cheque included); the amounts typed there are remembered and
+		// pre-filled when the invoice is submitted.
 		aqrar_show_payment_popup(frm);
 	},
 });
@@ -231,6 +243,13 @@ function aqrar_render_payment_dialog(frm, modes, is_cash_customer) {
 		return;
 	}
 
+	// Amounts saved by the popup's Save button earlier on this draft, by mode name.
+	const saved = frm.doc.docstatus === 0 ? aqrar_get_saved_payments(frm) : {};
+	const saved_total = modes.reduce(function (sum, m) {
+		return sum + (flt(saved[m]) || 0);
+	}, 0);
+	const has_saved = saved_total > 0;
+
 	const fields = [
 		{
 			fieldname: "invoice_total",
@@ -267,7 +286,9 @@ function aqrar_render_payment_dialog(frm, modes, is_cash_customer) {
 				fieldname: "pay_" + idx,
 				fieldtype: "Currency",
 				label: mode,
-				default: idx === 0 && modes.length === 1 ? invoice_total : 0,
+				default: has_saved
+					? flt(saved[mode]) || 0
+					: idx === 0 && modes.length === 1 ? invoice_total : 0,
 				options: "currency",
 				precision: precision,
 				onchange: function () {
@@ -295,7 +316,7 @@ function aqrar_render_payment_dialog(frm, modes, is_cash_customer) {
 			fieldname: "remaining_amount",
 			fieldtype: "Currency",
 			label: __("Remaining"),
-			default: invoice_total,
+			default: has_saved ? flt(invoice_total - saved_total, precision) : invoice_total,
 			read_only: 1,
 			options: "currency",
 			precision: precision,
@@ -402,6 +423,9 @@ function aqrar_render_payment_dialog(frm, modes, is_cash_customer) {
 		};
 
 		if (submit && frm.doc.docstatus === 0) {
+			const recorded = {};
+			payload.forEach(function (p) { recorded[p.mode_of_payment] = p.amount; });
+			aqrar_set_saved_payments(frm, recorded, invoice_total - total_rounded);
 			frappe.flags.aqrar_skip_payment_popup = true;
 			frm
 				.save("Submit")
@@ -440,14 +464,26 @@ function aqrar_render_payment_dialog(frm, modes, is_cash_customer) {
 		secondary_action_label: __("Save"),
 		secondary_action: function () {
 			if (frm.doc.docstatus === 0) {
+				// Record what was typed on the invoice; the Submit-time popup loads it back.
+				const entered = {};
+				let entered_total = 0;
+				modes.forEach(function (mode, i) {
+					const amt = flt(d.get_value("pay_" + i)) || 0;
+					if (amt > 0) {
+						entered[mode] = amt;
+						entered_total += amt;
+					}
+				});
+				aqrar_set_saved_payments(frm, entered, invoice_total - entered_total);
 				d.hide();
 				frappe.flags.aqrar_popup_showing = false;
-				frappe.show_alert(
-					{ message: __("Invoice saved. Submit the invoice when ready to add payments."), indicator: "blue" },
-					4
-				);
-				aqrar_open_invoice_print(frm);
-				frm.reload_doc();
+				aqrar_save_quietly(frm).then(function () {
+					frappe.show_alert(
+						{ message: __("Invoice saved. Submit the invoice when ready to add payments."), indicator: "blue" },
+						4
+					);
+					aqrar_open_invoice_print(frm);
+				});
 				return;
 			}
 			const vals = d.get_values();
