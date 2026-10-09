@@ -119,7 +119,7 @@ Tested: 2026-11-29 → 2026-09-01; 2026-11-30 → PI date − 90; result below t
   cancelled PR is not re-pointed. Not handled here.
 - Existing PIs are untouched; no patch required.
 - **Permissions (OPEN product decision):** PI submitters without Purchase Receipt create permission (e.g. Accounts User) get a PermissionError and the PI submit rolls back. Either grant PR create/submit to those roles, or set `ignore_permissions` on the system-created PR.
-- Rows with `received_qty > 0` and no `pr_detail` are left unlinked (the PR covers only the remainder).
+- **`received_qty` on a PI row is not trusted.** The PI form fills `received_qty = qty` on every row, receipt or not (aqrar-prod: 348 of 350 unlinked rows), and ERPNext's mapper reads that as "already received": it returned a receipt with no rows and the auto GRN was skipped without a word (reported from production on 2026-10-09). Before mapping, each selected row's `received_qty` is set to what submitted Purchase Receipts really received against it (`Purchase Receipt Item.purchase_invoice_item`, normally nothing at first submit, so the whole quantity is received); the receipt's own submit writes the field back via the status updater. If every stock row already has receipts (e.g. made by hand), nothing is created and an orange message says so. This replaces the earlier "rows with `received_qty > 0` are left unlinked, the PR covers only the remainder" rule.
 - A PI stock row with no resolvable warehouse throws a clear error.
 - Backdated PRs trigger valuation repost for later movements of the item/warehouse. In production the
   `Repost Item Valuation` is queued and processed by the scheduler (it runs inline only in tests).

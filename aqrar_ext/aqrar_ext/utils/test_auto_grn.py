@@ -319,16 +319,55 @@ class TestCreateAutoGrn(AutoGrnTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "Warehouse is required for stock item"):
 			pi.submit()
 
-	def test_partially_received_row_is_not_linked(self):
-		# 2 of 5 already received elsewhere: the receipt takes 3, so linking the row
-		# (billed for 5) to it would over-bill the receipt.
+	def test_ui_default_received_qty_equal_to_qty_still_gets_a_receipt(self):
+		# The PI form fills received_qty = qty on every row. On aqrar-prod that made the
+		# mapper see the row as already received (348 of 350 unlinked rows): it returned a
+		# receipt with no rows and the auto GRN was skipped without a word.
+		pi = self.make_pi(qty=5, received_qty=5, rate=50)
+		prs = linked_receipts(pi.name)
+		self.assertEqual(len(prs), 1)
+		pr = frappe.get_doc("Purchase Receipt", prs[0].name)
+		self.assertEqual(flt(pr.items[0].qty), 5)
+		self.assertEqual(sle_qty(pr.name), 5)
+		pi.reload()
+		self.assertEqual(pi.items[0].pr_detail, pr.items[0].name)
+		self.assertEqual(flt(pr.per_billed), 100)
+
+	def test_stored_received_qty_on_invoice_row_is_not_trusted(self):
+		# received_qty on the invoice row is only a default or a status-updater result; the
+		# receipts that really point at the row are the truth. At first submit there are
+		# none, so the whole quantity is received (it used to take just 5 - 2 = 3).
 		pi = self.make_pi(qty=5, received_qty=2, rate=50)
 		pr = frappe.get_doc("Purchase Receipt", linked_receipts(pi.name)[0].name)
-		self.assertEqual(pr.items[0].qty, 3)
+		self.assertEqual(flt(pr.items[0].qty), 5)
+		self.assertEqual(sle_qty(pr.name), 5)
 		pi.reload()
-		self.assertFalse(pi.items[0].pr_detail)
-		self.assertFalse(pi.items[0].purchase_receipt)
-		self.assertLessEqual(flt(pr.per_billed), 100)
+		self.assertEqual(pi.items[0].pr_detail, pr.items[0].name)
+		self.assertEqual(flt(pr.per_billed), 100)
+
+	def test_rows_already_received_by_real_receipts_are_not_received_again(self):
+		# What the team did on aqrar-prod while the auto GRN was skipping: receipts made by
+		# hand against the submitted invoice. Running the auto GRN afterwards must not
+		# receive the stock a second time, and must say why nothing happened.
+		from aqrar_ext.aqrar_ext.utils.auto_grn import create_auto_grn
+
+		self.set_rule(enabled=0)
+		pi = self.make_pi(qty=5, received_qty=5)
+		manual = make_test_purchase_receipt(
+			item_code=STOCK_ITEM, qty=5, rate=50, warehouse=WAREHOUSE, company=COMPANY, do_not_submit=True
+		)
+		manual.items[0].purchase_invoice = pi.name
+		manual.items[0].purchase_invoice_item = pi.items[0].name
+		manual.submit()
+		self.set_rule(enabled=1)
+		frappe.local.message_log = []
+		pi.reload()
+		create_auto_grn(pi)
+		self.assertEqual(linked_receipts(pi.name), [])
+		self.assertEqual(
+			frappe.db.count("Purchase Receipt Item", {"purchase_invoice_item": pi.items[0].name}), 1
+		)
+		self.assertTrue(any("nothing left to receive" in str(m) for m in frappe.local.message_log))
 
 	def test_mixed_stock_and_non_stock_invoice(self):
 		pi = self.make_pi(do_not_save=True)

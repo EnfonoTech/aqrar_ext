@@ -21,6 +21,7 @@ Hooks (registered in hooks.py):
 
 import frappe
 from frappe import _
+from frappe.query_builder.functions import Sum
 from frappe.utils import add_days, cint, flt, get_datetime, getdate, today
 
 MARKER_FIELD = "custom_auto_grn_invoice"
@@ -146,10 +147,21 @@ def _create_forward_grn(pi):
 				)
 			)
 
+	_sync_received_qty(rows)
+
 	# make_purchase_receipt treats an empty filter as "every row", so never call it
 	# with none (guarded above).
 	pr = make_purchase_receipt(pi.name, args={"filtered_children": [r.name for r in rows]})
 	if not pr.get("items"):
+		# Every stock row already has receipts (e.g. made by hand from this invoice).
+		# Say so: the auto GRN used to return here without a word.
+		frappe.msgprint(
+			_(
+				"Auto GRN: nothing left to receive for Purchase Invoice {0}; its stock rows already have receipts."
+			).format(pi.name),
+			indicator="orange",
+			alert=True,
+		)
 		return
 
 	by_name = {r.name: r for r in rows}
@@ -158,6 +170,45 @@ def _create_forward_grn(pi):
 	_stamp(pr, pi)
 	_insert_and_submit(pr, pi, expected)
 	_link_rows(pi, pr)
+
+
+def _received_via_receipts(row_name):
+	"""Quantity of a PI row that submitted Purchase Receipts really received.
+
+	Same figure ERPNext's status updater writes back to ``received_qty`` when a
+	receipt made from this row is submitted (receipt items joined on
+	``purchase_invoice_item``).
+	"""
+	item = frappe.qb.DocType("Purchase Receipt Item")
+	receipt = frappe.qb.DocType("Purchase Receipt")
+	total = (
+		frappe.qb.from_(item)
+		.join(receipt)
+		.on(item.parent == receipt.name)
+		.select(Sum(item.received_qty))
+		.where((item.purchase_invoice_item == row_name) & (receipt.docstatus == 1))
+		.run()
+	)
+	return flt(total[0][0]) if total else 0.0
+
+
+def _sync_received_qty(rows):
+	"""Make ``received_qty`` on the PI rows say what was really received.
+
+	The PI form fills ``received_qty = qty`` on every row, receipt or not (on
+	aqrar-prod 348 of 350 unlinked rows). ERPNext's mapper reads it as "already
+	received" and returns a receipt with no rows, so the auto GRN did nothing,
+	silently. The receipts that point at the row are the truth: usually none at the
+	first submit, so the whole quantity is received. The receipt's own submit writes
+	the field back through the status updater.
+	"""
+	for row in rows:
+		received = _received_via_receipts(row.name)
+		if flt(row.received_qty) != received:
+			frappe.db.set_value(
+				"Purchase Invoice Item", row.name, "received_qty", received, update_modified=False
+			)
+			row.received_qty = received
 
 
 def _drop_rejected_warehouse(pr):
