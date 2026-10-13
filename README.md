@@ -47,6 +47,7 @@ Installing without migrating leaves those fields absent.
 | CR-033 | Pending-approval queue + desk badge | `aqrar_ext/report/work_flow_approval/`, `public/js/workflowapproval.js` |
 | CR-035 | Transaction UOM dropdown limited to the item's own UOMs | `public/js/item_uom_filter.js`, `api/queries.py` |
 | — | Purchase Invoice auto-creates and submits the Purchase Receipt (GRN); the invoice does not update stock (except standalone debit notes and returns of pre-feature invoices that updated stock). Backdated to the system start date for the first 90 days, then PI date − 90 days (never earlier than the start date). Returns and cancels cascade. Per company, off by default; enable on the Company form → Stock tab → "Purchase Invoice Auto GRN" | `aqrar_ext/utils/auto_grn.py`, `setup_data.py` (Company `custom_auto_grn_*` fields, `custom_auto_grn_invoice` on Purchase Receipt) |
+| — | Stock Transfer auto-backdate: a Stock Entry with Purpose = Material Transfer is dated `max(posting date − days, System Start Date)` automatically, once, before ERPNext values it. Independent of the auto GRN settings. Per company, off by default; enable on the Company form → Stock tab → "Stock Transfer Backdate" | `aqrar_ext/utils/stock_transfer_backdate.py`, `setup_data.py` (Company `custom_stock_transfer_*`, Stock Entry `custom_stock_transfer_backdated`) |
 
 ### Not implemented (deliberately)
 

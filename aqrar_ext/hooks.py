@@ -124,6 +124,15 @@ _AUTO_GRN_NO_UPDATE_STOCK_HOOK = "aqrar_ext.aqrar_ext.utils.auto_grn.force_no_up
 _AUTO_GRN_CREATE_HOOK = "aqrar_ext.aqrar_ext.utils.auto_grn.create_auto_grn"
 _AUTO_GRN_CANCEL_HOOK = "aqrar_ext.aqrar_ext.utils.auto_grn.cancel_auto_grn"
 _AUTO_GRN_COMPANY_HOOK = "aqrar_ext.aqrar_ext.utils.auto_grn.validate_company_auto_grn"
+# Stock Entry (Material Transfer) backdate: independent of the auto GRN above. See
+# utils/stock_transfer_backdate.py.
+_STOCK_TRANSFER_BACKDATE_HOOK = "aqrar_ext.aqrar_ext.utils.stock_transfer_backdate.apply_stock_transfer_backdate"
+_STOCK_TRANSFER_BACKDATE_NOTE_HOOK = (
+	"aqrar_ext.aqrar_ext.utils.stock_transfer_backdate.record_stock_transfer_backdate"
+)
+_STOCK_TRANSFER_COMPANY_HOOK = (
+	"aqrar_ext.aqrar_ext.utils.stock_transfer_backdate.validate_company_stock_transfer_backdate"
+)
 
 doc_events = {
 	"Purchase Invoice": {
@@ -135,7 +144,7 @@ doc_events = {
 		"on_cancel": _AUTO_GRN_CANCEL_HOOK,
 	},
 	# Per-company auto-GRN settings (Custom Fields on Company).
-	"Company": {"validate": _AUTO_GRN_COMPANY_HOOK},
+	"Company": {"validate": [_AUTO_GRN_COMPANY_HOOK, _STOCK_TRANSFER_COMPANY_HOOK]},
 	"Delivery Note": {
 		# set_valuation_rate first, so a return row's rate still ends up correct:
 		# _RETURN_UOM_HOOK re-derives return rates from the invoiced row and runs
@@ -158,8 +167,14 @@ doc_events = {
 	"Quotation": {"validate": [_COST_CENTER_HOOK, _VALUATION_FLOOR_HOOK]},
 	"Purchase Order": {"validate": _COST_CENTER_HOOK},
 	"Stock Entry": {
-		"before_validate": "aqrar_ext.events.material_request.set_stock_entry_warehouse_qty",
+		# the backdate first: the warehouse qty hook (and ERPNext's own validate) must see
+		# the final posting date. See utils/stock_transfer_backdate.py.
+		"before_validate": [
+			_STOCK_TRANSFER_BACKDATE_HOOK,
+			"aqrar_ext.events.material_request.set_stock_entry_warehouse_qty",
+		],
 		"validate": _COST_CENTER_HOOK,
+		"on_update": _STOCK_TRANSFER_BACKDATE_NOTE_HOOK,
 	},
 	"Payment Entry": {"validate": _COST_CENTER_HOOK},
 	"Sales Invoice": {
