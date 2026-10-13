@@ -1,7 +1,9 @@
 import frappe
+from erpnext.stock.doctype.stock_entry.stock_entry import make_stock_in_entry
 from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
+from erpnext.stock.stock_ledger import NegativeStockError
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, flt, getdate, today
+from frappe.utils import add_days, flt, get_time, getdate, today
 
 from aqrar_ext.aqrar_ext.utils.auto_grn import get_grn_date_for
 from aqrar_ext.aqrar_ext.utils.stock_transfer_backdate import (
@@ -54,6 +56,10 @@ class TestStockTransferDate(FrappeTestCase):
 
 class StockTransferBackdateTestCase(FrappeTestCase):
 	def setUp(self):
+		# FrappeTestCase rolls back once per CLASS: isolate every test, or stock left by earlier
+		# tests flattens the rate gaps these tests rely on
+		frappe.db.savepoint("stb_test")
+		self.addCleanup(frappe.db.rollback, save_point="stb_test")
 		# moving average: the rate differs between dates once a later receipt arrives
 		frappe.db.set_value("Item", ITEM, "valuation_method", "Moving Average")
 		frappe.clear_document_cache("Item", ITEM)
@@ -222,7 +228,7 @@ class TestStockTransferBackdate(StockTransferBackdateTestCase):
 		frappe.db.savepoint("st_negative_stock")
 		try:
 			self.receive(7, rate=10, date="2026-10-20", warehouse=WH_C)
-			with self.assertRaises(frappe.ValidationError):
+			with self.assertRaises(NegativeStockError):
 				make_stock_entry(
 					item_code=ITEM,
 					qty=5,
@@ -296,6 +302,139 @@ class TestStockTransferBackdate(StockTransferBackdateTestCase):
 		doc = frappe.get_doc("Stock Entry", se.name)
 		doc._action = "update_after_submit"
 		apply_stock_transfer_backdate(doc)
+		self.assertEqual(getdate(doc.posting_date), getdate("2026-10-07"))
+		self.assertEqual(doc.custom_stock_transfer_backdated, 0)
+
+
+class TestEdgeCases(StockTransferBackdateTestCase):
+	"""Found in review: each one posted on the wrong date or refused a legitimate transfer."""
+
+	def transit_warehouse(self):
+		name = frappe.db.get_value(
+			"Warehouse", {"company": COMPANY, "warehouse_type": "Transit", "is_group": 0}
+		)
+		if name:
+			return name
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Warehouse",
+					"warehouse_name": "Stock Transfer Test Transit",
+					"company": COMPANY,
+					"warehouse_type": "Transit",
+				}
+			)
+			.insert()
+			.name
+		)
+
+	def dispatch(self, date, hand_edit_date=None):
+		# the outgoing entry of an in-transit transfer
+		out = make_stock_entry(
+			item_code=ITEM,
+			qty=5,
+			from_warehouse=WH_A,
+			to_warehouse=self.transit_warehouse(),
+			company=COMPANY,
+			posting_date=date,
+			do_not_submit=True,
+		)
+		out.add_to_transit = 1
+		if hand_edit_date:
+			out.posting_date = hand_edit_date
+		out.save()
+		out.submit()
+		return out
+
+	def receive_in_transit(self, out):
+		rec = make_stock_in_entry(out.name)
+		for row in rec.items:
+			row.t_warehouse = WH_B
+		rec.insert()
+		rec.submit()
+		return rec
+
+	def test_draft_left_on_the_rule_date_keeps_it_at_submit(self):
+		# The rule leaves the date alone (start date = today = the draft's own date). The draft
+		# must still tick Edit Posting Date and Time, or ERPNext resets the date to "now" when
+		# it is submitted later (days later, in practice). No date is typed, as on the form:
+		# the test helper ticks the box itself whenever it is given a date, which hid this.
+		self.set_transfer_rule(start=today(), days=30)
+		se = self.transfer(do_not_submit=True)
+		self.assertEqual(getdate(se.posting_date), getdate(today()))
+		self.assertEqual(se.custom_stock_transfer_backdated, 1)
+		self.assertEqual(se.set_posting_time, 1)
+
+	def test_transfers_on_the_floor_keep_their_order(self):
+		# Two transfers made on different days both land on the floor date. By real time of
+		# day the second (09:00) would sort before the first (15:00) it depends on.
+		self.set_transfer_rule(start="2026-09-20", days=30)
+		first = make_stock_entry(
+			item_code=ITEM,
+			qty=5,
+			from_warehouse=WH_A,
+			to_warehouse=WH_B,
+			company=COMPANY,
+			posting_date="2026-10-12",
+			posting_time="15:00:00",
+		)
+		second = make_stock_entry(
+			item_code=ITEM,
+			qty=5,
+			from_warehouse=WH_B,
+			to_warehouse=WH_A,
+			company=COMPANY,
+			posting_date="2026-10-13",
+			posting_time="09:00:00",
+		)
+		for se in (first, second):
+			self.assertEqual(getdate(se.posting_date), getdate("2026-09-20"))
+			self.assertEqual(str(get_time(se.posting_time)), "23:59:59")
+
+	def test_in_transit_receipt_is_not_dated_before_its_outgoing_entry(self):
+		# the outgoing entry was dated 09-13 by the rule, then the user moved it to 10-13
+		out = self.dispatch("2026-10-13", hand_edit_date="2026-10-13")
+		self.assertEqual(getdate(out.posting_date), getdate("2026-10-13"))
+		rec = self.receive_in_transit(out)
+		self.assertGreaterEqual(getdate(rec.posting_date), getdate(out.posting_date))
+		self.assertEqual(rec.docstatus, 1)
+
+	def test_in_transit_pair_both_on_the_floor(self):
+		self.set_transfer_rule(start="2026-09-20", days=30)
+		out = self.dispatch("2026-10-12")
+		rec = self.receive_in_transit(out)
+		self.assertEqual(getdate(out.posting_date), getdate("2026-09-20"))
+		self.assertEqual(getdate(rec.posting_date), getdate("2026-09-20"))
+		self.assertEqual(rec.docstatus, 1)
+
+	def test_stock_freeze_date_is_a_floor(self):
+		# ERPNext refuses stock postings up to the freeze date: the rule must not date a
+		# transfer into it, or the user has to date it by hand
+		frappe.db.set_single_value("Stock Settings", "stock_frozen_upto", "2026-09-30")
+		try:
+			se = self.transfer(date="2026-09-29")  # 30 days back = 08-30; floor = freeze + 1
+			self.assertEqual(getdate(se.posting_date), getdate("2026-10-01"))
+			self.assertEqual(se.docstatus, 1)
+		finally:
+			frappe.db.set_single_value("Stock Settings", "stock_frozen_upto", None)
+
+	def test_rolling_stock_freeze_days_is_a_floor(self):
+		frappe.db.set_single_value("Stock Settings", "stock_frozen_upto_days", 20)
+		try:
+			se = self.transfer()  # posting date today, 30 days back is frozen: floor = today - 19
+			self.assertEqual(getdate(se.posting_date), getdate(add_days(today(), -19)))
+			self.assertEqual(se.docstatus, 1)
+		finally:
+			frappe.db.set_single_value("Stock Settings", "stock_frozen_upto_days", 0)
+
+	def test_imported_history_is_not_redated(self):
+		doc = frappe.new_doc("Stock Entry")
+		doc.update({"purpose": "Material Transfer", "company": COMPANY, "posting_date": "2026-10-07"})
+		frappe.flags.in_import = True
+		try:
+			apply_stock_transfer_backdate(doc)
+		finally:
+			frappe.flags.in_import = False
 		self.assertEqual(getdate(doc.posting_date), getdate("2026-10-07"))
 		self.assertEqual(doc.custom_stock_transfer_backdated, 0)
 

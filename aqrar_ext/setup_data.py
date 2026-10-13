@@ -742,8 +742,8 @@ CUSTOM_FIELDS.setdefault("Company", []).extend(
 			"fieldtype": "Check",
 			"default": "0",
 			"insert_after": "custom_stock_transfer_backdate_section",
-			"description": "On submit of a Stock Entry with Purpose = Material Transfer for this company, "
-			"set its posting date automatically. Other purposes are not touched.",
+			"description": "A Stock Entry with Purpose = Material Transfer for this company is dated "
+			"automatically, once, when it is first saved. Other purposes are not touched.",
 		},
 		{
 			"fieldname": "custom_stock_transfer_start_date",
