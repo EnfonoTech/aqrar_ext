@@ -710,6 +710,63 @@ CUSTOM_FIELDS.setdefault("Company", []).extend(
 	]
 )
 
+# Stock Entry: marks a draft Material Transfer already dated by the Stock Transfer
+# Backdate rule, so a re-save never subtracts the days again (utils/stock_transfer_backdate.py).
+CUSTOM_FIELDS.setdefault("Stock Entry", []).append(
+	{
+		"fieldname": "custom_stock_transfer_backdated",
+		"label": "Stock Transfer Backdate Applied",
+		"fieldtype": "Check",
+		"insert_after": "set_posting_time",
+		"read_only": 1,
+		"no_copy": 1,
+		"print_hide": 1,
+	}
+)
+
+# Stock Transfer Backdate: a Material Transfer Stock Entry is backdated automatically
+# (utils/stock_transfer_backdate.py). Its own three fields, deliberately NOT the auto-GRN
+# ones: Purchase Receipt and Stock Transfer are different processes and each can use a
+# different number of days. Off by default.
+CUSTOM_FIELDS.setdefault("Company", []).extend(
+	[
+		{
+			"fieldname": "custom_stock_transfer_backdate_section",
+			"label": "Stock Transfer Backdate",
+			"fieldtype": "Section Break",
+			"insert_after": "custom_auto_grn_backdate_days",
+		},
+		{
+			"fieldname": "custom_stock_transfer_backdate_enabled",
+			"label": "Enable Backdated Stock Transfer",
+			"fieldtype": "Check",
+			"default": "0",
+			"insert_after": "custom_stock_transfer_backdate_section",
+			"description": "A Stock Entry with Purpose = Material Transfer for this company is dated "
+			"automatically, once, when it is first saved. Other purposes are not touched.",
+		},
+		{
+			"fieldname": "custom_stock_transfer_start_date",
+			"label": "Stock Transfer System Start Date",
+			"fieldtype": "Date",
+			"insert_after": "custom_stock_transfer_backdate_enabled",
+			"depends_on": "custom_stock_transfer_backdate_enabled",
+			"mandatory_depends_on": "custom_stock_transfer_backdate_enabled",
+			"description": "A transfer is never dated before this day.",
+		},
+		{
+			"fieldname": "custom_stock_transfer_backdate_days",
+			"label": "Stock Transfer Backdate Days",
+			"fieldtype": "Int",
+			"default": "0",
+			"insert_after": "custom_stock_transfer_start_date",
+			"depends_on": "custom_stock_transfer_backdate_enabled",
+			"description": "The transfer is dated this many days before its posting date "
+			"(but never before the System Start Date).",
+		},
+	]
+)
+
 # Back-date Stock: when a Purchase Invoice row's goods physically arrived before
 # the invoice. overrides/purchase_invoice.py posts that row's stock and its
 # Stock In Hand value at this time; utils/backdate_stock.py sets it.
