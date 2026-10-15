@@ -30,10 +30,12 @@ subtracted again. The flag marks a draft that has been dated:
   * a re-save after the user typed ANOTHER posting date dates that date again
     (typed 20-10, 30 days -> 20-09), the same as a first save would;
   * the day count is not recomputed when only the company's days changed.
-Users with a Stock Manager / System Manager role may untick the flag on a draft: the posting
-date then stays exactly as entered (a same-day transfer) until the flag is ticked again, which
-dates the draft on the next save. Anybody else cannot change the flag (refused here, read-only
-on the form). Who unticked and when is stored on the entry and written to its timeline.
+Users holding the Company's "Role Allowed to Untick Backdate" may untick the flag on a draft:
+the posting date then stays exactly as entered (a same-day transfer) until the flag is ticked
+again, which dates the draft on the next save. Anybody else cannot change the flag (refused
+here, read-only on the form), and with no role set nobody can. The role is read from the
+Company on every save, so changing it applies at once. Who unticked and when is stored on the
+entry and written to its timeline.
 ERPNext's own ``validate_posting_time`` runs after this hook and, with Edit Posting Date
 and Time ticked (set here), keeps the date.
 """
@@ -47,14 +49,11 @@ PURPOSE = "Material Transfer"
 ENABLED_FIELD = "custom_stock_transfer_backdate_enabled"
 START_DATE_FIELD = "custom_stock_transfer_start_date"
 DAYS_FIELD = "custom_stock_transfer_backdate_days"
+UNTICK_ROLE_FIELD = "custom_stock_transfer_untick_role"
 APPLIED_FIELD = "custom_stock_transfer_backdated"
 UNTICKED_BY_FIELD = "custom_stock_transfer_unticked_by"
 UNTICKED_ON_FIELD = "custom_stock_transfer_unticked_on"
 NOTE_FLAG = "stock_transfer_backdate_notes"
-
-# Roles that may tick / untick "Stock Transfer Backdate Applied" on a draft
-# (public/js/stock_entry_backdate_override.js unlocks the field for the same roles).
-OVERRIDE_ROLES = ("Stock Manager", "System Manager")
 
 # Entries dated on the floor all get this time of day. Many transfers made on different days
 # land on the same floor date; ordered by their real time of day, a later transfer could
@@ -99,17 +98,29 @@ def _queue_note(doc, note):
 	doc.flags.setdefault(NOTE_FLAG, []).append(note)
 
 
+def get_untick_role(company):
+	"""The role the Company allows to tick / untick the flag; None when it is not set."""
+	if not company:
+		return None
+	return frappe.db.get_value("Company", company, UNTICK_ROLE_FIELD) or None
+
+
 def _handle_tick_change(doc):
 	"""The user ticked or unticked "Stock Transfer Backdate Applied" on a draft.
 
 	Returns True when the draft must be dated again from its posting date (re-ticked),
 	False when the date has to stay as entered (unticked).
 	"""
-	if not set(frappe.get_roles()) & set(OVERRIDE_ROLES):
+	role = get_untick_role(doc.get("company"))
+	if not role:
 		frappe.throw(
-			_("Only users with the role {0} can change Stock Transfer Backdate Applied.").format(
-				_(OVERRIDE_ROLES[0])
-			),
+			_(
+				"Nobody can change Stock Transfer Backdate Applied: set Role Allowed to Untick Backdate on Company {0}."
+			).format(doc.get("company"))
+		)
+	if role not in frappe.get_roles():
+		frappe.throw(
+			_("Only users with the role {0} can change Stock Transfer Backdate Applied.").format(role),
 			frappe.PermissionError,
 		)
 
