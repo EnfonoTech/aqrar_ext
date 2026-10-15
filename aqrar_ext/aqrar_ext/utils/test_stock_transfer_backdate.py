@@ -173,14 +173,26 @@ class TestStockTransferBackdate(StockTransferBackdateTestCase):
 		self.assertEqual(getdate(se.posting_date), getdate("2026-09-07"))
 		self.assertEqual(self.ledger_dates(se.name), {"2026-09-07"})
 
-	def test_a_date_the_user_edits_afterwards_is_respected(self):
-		se = self.transfer(date="2026-10-07", do_not_submit=True)
-		self.assertEqual(getdate(se.posting_date), getdate("2026-09-07"))
-		se.posting_date = "2026-09-15"
+	def test_a_date_the_user_changes_is_dated_again_on_the_next_save(self):
+		# the client's case: 30 days, start 01-09. Created 14-10 -> 14-09. The user then types
+		# 20-10 and saves: 20-10 - 30 = 20-09, NOT left at 20-10 and NOT 14-09 minus 30 again
+		se = self.transfer(date="2026-10-14", do_not_submit=True)
+		self.assertEqual(getdate(se.posting_date), getdate("2026-09-14"))
+		se.posting_date = "2026-10-20"
 		se.save()
-		self.assertEqual(getdate(se.posting_date), getdate("2026-09-15"))
+		self.assertEqual(getdate(se.posting_date), getdate("2026-09-20"))
+		self.assertEqual(se.custom_stock_transfer_backdated, 1)
+		# an untouched re-save keeps it, and so does the submit
+		se.save()
+		self.assertEqual(getdate(se.posting_date), getdate("2026-09-20"))
 		se.submit()
-		self.assertEqual(self.ledger_dates(se.name), {"2026-09-15"})
+		self.assertEqual(self.ledger_dates(se.name), {"2026-09-20"})
+
+	def test_a_changed_date_before_the_start_goes_to_the_floor(self):
+		se = self.transfer(date="2026-10-07", do_not_submit=True)
+		se.posting_date = "2026-09-15"  # - 30 days = 16-08, before the start
+		se.save()
+		self.assertEqual(getdate(se.posting_date), getdate(START))
 
 	def test_draft_made_before_the_switch_is_dated_once_it_is_on(self):
 		self.set_transfer_rule(enabled=0)
@@ -341,6 +353,8 @@ class TestEdgeCases(StockTransferBackdateTestCase):
 		)
 		out.add_to_transit = 1
 		if hand_edit_date:
+			# a Stock Manager unticks "Backdate Applied" and keeps the date he typed
+			out.custom_stock_transfer_backdated = 0
 			out.posting_date = hand_edit_date
 		out.save()
 		out.submit()
@@ -509,3 +523,147 @@ class TestCompanyValidation(FrappeTestCase):
 		doc.custom_stock_transfer_start_date = None
 		doc.custom_stock_transfer_backdate_days = 0
 		doc.save()
+
+
+class TestUntickOverride(StockTransferBackdateTestCase):
+	"""Stock Manager may untick "Stock Transfer Backdate Applied" on a draft."""
+
+	TODAY = None
+
+	def setUp(self):
+		super().setUp()
+		self.TODAY = today()
+
+	def draft(self, date="2026-10-14"):
+		return self.transfer(date=date, do_not_submit=True)
+
+	def untick(self, se, date=None):
+		se.custom_stock_transfer_backdated = 0
+		if date:
+			se.posting_date = date
+		se.save()
+		return se
+
+	def notes(self, se):
+		return frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Stock Entry", "reference_name": se.name, "comment_type": "Info"},
+			pluck="content",
+		)
+
+	def test_unticked_keeps_the_date_as_entered(self):
+		se = self.draft()
+		self.assertEqual(getdate(se.posting_date), getdate("2026-09-14"))
+		self.untick(se, date=self.TODAY)
+		self.assertEqual(getdate(se.posting_date), getdate(self.TODAY))
+		self.assertEqual(se.custom_stock_transfer_backdated, 0)
+		# stays so on later saves, even though the flag is 0 again
+		se.save()
+		self.assertEqual(getdate(se.posting_date), getdate(self.TODAY))
+		se.posting_date = "2026-10-12"
+		se.save()
+		self.assertEqual(getdate(se.posting_date), getdate("2026-10-12"))
+
+	def test_unticked_same_day_transfer_posts_on_that_day(self):
+		se = self.untick(self.draft(), date=self.TODAY)
+		se.submit()
+		self.assertEqual(self.ledger_dates(se.name), {str(getdate(self.TODAY))})
+
+	def test_who_and_when_are_stored_and_logged(self):
+		se = self.untick(self.draft())
+		se.reload()
+		self.assertEqual(se.custom_stock_transfer_unticked_by, frappe.session.user)
+		self.assertTrue(se.custom_stock_transfer_unticked_on)
+		self.assertTrue(
+			any("unticked by" in n and frappe.session.user in n for n in self.notes(se)), self.notes(se)
+		)
+
+	def test_ticked_again_dates_the_draft_on_the_next_save(self):
+		se = self.untick(self.draft(), date="2026-10-20")
+		self.assertEqual(getdate(se.posting_date), getdate("2026-10-20"))
+		se.custom_stock_transfer_backdated = 1
+		se.save()
+		self.assertEqual(getdate(se.posting_date), getdate("2026-09-20"))
+		self.assertEqual(se.custom_stock_transfer_backdated, 1)
+		self.assertFalse(se.custom_stock_transfer_unticked_by)
+		# and is a normal dated draft again: an untouched re-save does not subtract twice
+		se.save()
+		self.assertEqual(getdate(se.posting_date), getdate("2026-09-20"))
+		self.assertTrue(any("ticked again" in n for n in self.notes(se)), self.notes(se))
+
+	def test_a_user_without_the_role_cannot_change_the_tick(self):
+		se = self.draft()
+		email = "stock.transfer.backdate.tester@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": "Backdate",
+					"send_welcome_email": 0,
+					"roles": [{"role": "Stock User"}],
+				}
+			).insert(ignore_permissions=True)
+		doc = frappe.get_doc("Stock Entry", se.name)
+		doc.custom_stock_transfer_backdated = 0
+		self.addCleanup(frappe.set_user, frappe.session.user)
+		frappe.set_user(email)
+		with self.assertRaises(frappe.PermissionError):
+			apply_stock_transfer_backdate(doc)
+		# nothing was recorded
+		frappe.set_user("Administrator")
+		self.assertFalse(frappe.db.get_value("Stock Entry", se.name, "custom_stock_transfer_unticked_by"))
+
+	def test_a_user_without_the_role_can_still_save_the_dated_draft(self):
+		# the tick is unchanged (1 -> 1): the ordinary re-save must not be refused
+		se = self.draft()
+		email = "stock.transfer.backdate.tester@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": "Backdate",
+					"send_welcome_email": 0,
+					"roles": [{"role": "Stock User"}],
+				}
+			).insert(ignore_permissions=True)
+		doc = frappe.get_doc("Stock Entry", se.name)
+		self.addCleanup(frappe.set_user, frappe.session.user)
+		frappe.set_user(email)
+		apply_stock_transfer_backdate(doc)  # does not raise
+		self.assertEqual(getdate(doc.posting_date), getdate("2026-09-14"))
+
+	def test_system_manager_may_untick_too(self):
+		email = "stock.transfer.backdate.sysmgr@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": "Sys",
+					"send_welcome_email": 0,
+					"roles": [{"role": "System Manager"}],
+				}
+			).insert(ignore_permissions=True)
+		se = self.draft()
+		doc = frappe.get_doc("Stock Entry", se.name)
+		doc.custom_stock_transfer_backdated = 0
+		self.addCleanup(frappe.set_user, frappe.session.user)
+		frappe.set_user(email)
+		apply_stock_transfer_backdate(doc)  # does not raise
+		self.assertEqual(doc.custom_stock_transfer_unticked_by, email)
+
+	def test_unticking_a_submitted_entry_is_ignored(self):
+		se = self.transfer(date="2026-10-14")  # submitted, dated 14-09
+		doc = frappe.get_doc("Stock Entry", se.name)
+		doc._action = "update_after_submit"
+		doc.custom_stock_transfer_backdated = 0
+		apply_stock_transfer_backdate(doc)
+		self.assertFalse(doc.custom_stock_transfer_unticked_by)
+
+	def test_unticked_draft_ignores_a_later_change_of_the_rule(self):
+		se = self.untick(self.draft(), date=self.TODAY)
+		self.set_transfer_rule(enabled=1, days=5)
+		se.save()
+		self.assertEqual(getdate(se.posting_date), getdate(self.TODAY))

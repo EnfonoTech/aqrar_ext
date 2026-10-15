@@ -96,3 +96,19 @@ without source stock on the new date; valuation equals a hand-entered transfer (
 in-transit receipt (real receipt, both on the floor, hand-edited outgoing); submitted entry not re-dated;
 floor ordering; stock freeze (date and rolling days); import; independence from the GRN values both
 ways; Company validation. Every test is isolated by a savepoint.
+
+## Revision 2026-10-15 (client UAT feedback)
+
+1. **Re-saves.** The first version dated a draft once and then respected any date typed afterwards, so
+   a user who moved the date of an already-backdated draft got it back un-backdated. Now, while
+   "Stock Transfer Backdate Applied" is ticked: an untouched re-save keeps the date (no second
+   subtraction); a re-save after the user typed another posting date dates THAT date again
+   (start 01-09, 30 days: created 14-10 -> 14-09; typed 20-10 -> 20-09; floored at the start date).
+   Changing the company's days alone still does not move a dated draft.
+2. **Untick by an authorised role.** Stock Manager / System Manager (`OVERRIDE_ROLES`) can untick the
+   flag on a saved Draft (the JS `stock_entry_backdate_override.js` unlocks the read-only field; the
+   server refuses a tick change by anyone else). Unticked: the posting date stays exactly as entered,
+   same-day transfers included, on every later save. Ticked again: dated on the next save. Who and when:
+   `custom_stock_transfer_unticked_by` / `_on` (read-only, shown once set) plus an Info comment on the
+   entry for every untick and re-tick. A brand-new entry cannot be unticked before its first save
+   (unticked and "not dated yet" look the same on a new entry): save once, then untick.
