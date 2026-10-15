@@ -17,6 +17,35 @@ WH_A = "_Test Warehouse - _TC"
 WH_B = "_Test Warehouse 1 - _TC"
 WH_C = "_Test Warehouse 2 - _TC"  # only the negative-stock test uses it
 START = "2026-09-01"
+UNTICK_ROLE = "Stock Transfer Override"
+OTHER_ROLE = "Stock Transfer Override 2"
+
+
+def ensure_role(name):
+	if not frappe.db.exists("Role", name):
+		frappe.get_doc({"doctype": "Role", "role_name": name, "desk_access": 1}).insert(ignore_permissions=True)
+
+
+def ensure_user(email, roles):
+	"""A user holding exactly these roles (savepoint-isolated with the test)."""
+	if frappe.db.exists("User", email):
+		user = frappe.get_doc("User", email)
+		user.set("roles", [])
+		for role in roles:
+			user.append("roles", {"role": role})
+		user.save(ignore_permissions=True)
+	else:
+		frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": email.split("@")[0],
+				"send_welcome_email": 0,
+				"roles": [{"role": role} for role in roles],
+			}
+		).insert(ignore_permissions=True)
+	frappe.clear_cache(user=email)
+	return email
 
 
 class TestStockTransferDate(FrappeTestCase):
@@ -64,7 +93,17 @@ class StockTransferBackdateTestCase(FrappeTestCase):
 		frappe.db.set_value("Item", ITEM, "valuation_method", "Moving Average")
 		frappe.clear_document_cache("Item", ITEM)
 		self.set_transfer_rule(enabled=1, start=START, days=30)
+		# the role the Company allows to untick; Administrator holds every role
+		ensure_role(UNTICK_ROLE)
+		ensure_role(OTHER_ROLE)
+		self.set_untick_role(UNTICK_ROLE)
+		frappe.clear_cache(user="Administrator")
 		self.receive(100, rate=10, date="2026-09-01")
+
+	@staticmethod
+	def set_untick_role(role, company=COMPANY):
+		frappe.db.set_value("Company", company, "custom_stock_transfer_untick_role", role)
+		frappe.clear_document_cache("Company", company)
 
 	@staticmethod
 	def set_transfer_rule(enabled=1, start=START, days=30, company=COMPANY):
@@ -591,68 +630,75 @@ class TestUntickOverride(StockTransferBackdateTestCase):
 		self.assertEqual(getdate(se.posting_date), getdate("2026-09-20"))
 		self.assertTrue(any("ticked again" in n for n in self.notes(se)), self.notes(se))
 
-	def test_a_user_without_the_role_cannot_change_the_tick(self):
+	def draft_doc_with_tick(self, tick):
 		se = self.draft()
-		email = "stock.transfer.backdate.tester@example.com"
-		if not frappe.db.exists("User", email):
-			frappe.get_doc(
-				{
-					"doctype": "User",
-					"email": email,
-					"first_name": "Backdate",
-					"send_welcome_email": 0,
-					"roles": [{"role": "Stock User"}],
-				}
-			).insert(ignore_permissions=True)
 		doc = frappe.get_doc("Stock Entry", se.name)
-		doc.custom_stock_transfer_backdated = 0
+		doc.custom_stock_transfer_backdated = tick
+		return doc
+
+	def run_as(self, email, doc):
 		self.addCleanup(frappe.set_user, frappe.session.user)
 		frappe.set_user(email)
-		with self.assertRaises(frappe.PermissionError):
+		try:
 			apply_stock_transfer_backdate(doc)
-		# nothing was recorded
-		frappe.set_user("Administrator")
-		self.assertFalse(frappe.db.get_value("Stock Entry", se.name, "custom_stock_transfer_unticked_by"))
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_a_user_with_the_company_role_may_untick(self):
+		user_a = ensure_user("stb.user.a@example.com", ["Stock User", UNTICK_ROLE])
+		doc = self.draft_doc_with_tick(0)
+		self.run_as(user_a, doc)  # does not raise
+		self.assertEqual(doc.custom_stock_transfer_unticked_by, user_a)
+
+	def test_a_stock_manager_without_the_role_cannot(self):
+		user_b = ensure_user("stb.user.b@example.com", ["Stock Manager"])
+		doc = self.draft_doc_with_tick(0)
+		with self.assertRaises(frappe.PermissionError):
+			self.run_as(user_b, doc)
+		self.assertFalse(doc.get("custom_stock_transfer_unticked_by"))
+
+	def test_a_system_manager_without_the_role_cannot(self):
+		user = ensure_user("stb.user.sm@example.com", ["System Manager"])
+		doc = self.draft_doc_with_tick(0)
+		with self.assertRaises(frappe.PermissionError):
+			self.run_as(user, doc)
 
 	def test_a_user_without_the_role_can_still_save_the_dated_draft(self):
 		# the tick is unchanged (1 -> 1): the ordinary re-save must not be refused
-		se = self.draft()
-		email = "stock.transfer.backdate.tester@example.com"
-		if not frappe.db.exists("User", email):
-			frappe.get_doc(
-				{
-					"doctype": "User",
-					"email": email,
-					"first_name": "Backdate",
-					"send_welcome_email": 0,
-					"roles": [{"role": "Stock User"}],
-				}
-			).insert(ignore_permissions=True)
-		doc = frappe.get_doc("Stock Entry", se.name)
-		self.addCleanup(frappe.set_user, frappe.session.user)
-		frappe.set_user(email)
-		apply_stock_transfer_backdate(doc)  # does not raise
+		user_b = ensure_user("stb.user.b@example.com", ["Stock Manager"])
+		doc = self.draft_doc_with_tick(1)
+		self.run_as(user_b, doc)  # does not raise
 		self.assertEqual(getdate(doc.posting_date), getdate("2026-09-14"))
 
-	def test_system_manager_may_untick_too(self):
-		email = "stock.transfer.backdate.sysmgr@example.com"
-		if not frappe.db.exists("User", email):
-			frappe.get_doc(
-				{
-					"doctype": "User",
-					"email": email,
-					"first_name": "Sys",
-					"send_welcome_email": 0,
-					"roles": [{"role": "System Manager"}],
-				}
-			).insert(ignore_permissions=True)
-		se = self.draft()
-		doc = frappe.get_doc("Stock Entry", se.name)
-		doc.custom_stock_transfer_backdated = 0
-		self.addCleanup(frappe.set_user, frappe.session.user)
-		frappe.set_user(email)
-		apply_stock_transfer_backdate(doc)  # does not raise
-		self.assertEqual(doc.custom_stock_transfer_unticked_by, email)
+	def test_no_role_set_nobody_can_untick_not_even_administrator(self):
+		self.set_untick_role(None)
+		doc = self.draft_doc_with_tick(0)
+		with self.assertRaises(frappe.ValidationError):
+			apply_stock_transfer_backdate(doc)
+		user_a = ensure_user("stb.user.a@example.com", ["Stock User", UNTICK_ROLE])
+		with self.assertRaises(frappe.ValidationError):
+			self.run_as(user_a, self.draft_doc_with_tick(0))
+
+	def test_changing_the_role_moves_the_access(self):
+		user_a = ensure_user("stb.user.a@example.com", ["Stock User", UNTICK_ROLE])
+		user_c = ensure_user("stb.user.c@example.com", ["Stock User", OTHER_ROLE])
+		self.run_as(user_a, self.draft_doc_with_tick(0))  # A allowed
+		with self.assertRaises(frappe.PermissionError):
+			self.run_as(user_c, self.draft_doc_with_tick(0))  # C not yet
+		self.set_untick_role(OTHER_ROLE)  # the change in Company settings, nothing else
+		self.run_as(user_c, self.draft_doc_with_tick(0))  # C allowed now
+		with self.assertRaises(frappe.PermissionError):
+			self.run_as(user_a, self.draft_doc_with_tick(0))  # A refused now
+
+	def test_the_company_form_save_applies_at_once(self):
+		# a real Company save (not a raw db write) takes effect on the very next transfer save
+		user_c = ensure_user("stb.user.c@example.com", ["Stock User", OTHER_ROLE])
+		with self.assertRaises(frappe.PermissionError):
+			self.run_as(user_c, self.draft_doc_with_tick(0))
+		company = frappe.get_doc("Company", COMPANY)
+		company.custom_stock_transfer_untick_role = OTHER_ROLE
+		company.save(ignore_permissions=True)
+		self.run_as(user_c, self.draft_doc_with_tick(0))
 
 	def test_unticking_a_submitted_entry_is_ignored(self):
 		se = self.transfer(date="2026-10-14")  # submitted, dated 14-09

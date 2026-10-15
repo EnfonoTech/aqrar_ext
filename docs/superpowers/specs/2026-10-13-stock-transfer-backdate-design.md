@@ -112,3 +112,13 @@ ways; Company validation. Every test is isolated by a savepoint.
    `custom_stock_transfer_unticked_by` / `_on` (read-only, shown once set) plus an Info comment on the
    entry for every untick and re-tick. A brand-new entry cannot be unticked before its first save
    (unticked and "not dated yet" look the same on a new entry): save once, then untick.
+
+## Revision 2026-10-15 (2): the untick role is a Company setting
+Replaces the fixed Stock Manager / System Manager of revision 1. Company field
+`custom_stock_transfer_untick_role` ("Role Allowed to Untick Backdate", Link to Role, in the Stock Transfer
+Backdate section). Only users holding that role can tick / untick `Stock Transfer Backdate Applied` on a
+saved Draft; everybody else, Stock Manager and System Manager included, sees it read-only and the server
+refuses the change. Empty = nobody (even Administrator is refused on the server and the box stays
+read-only). The role is read from the Company on every form refresh and every save, so a change applies at
+once, with no restart. Administrator holds every role in Frappe, so it passes whenever a role is set.
+Logging (who / when fields, timeline comments) and every other behaviour are unchanged.

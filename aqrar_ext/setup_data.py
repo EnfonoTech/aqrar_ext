@@ -713,7 +713,8 @@ CUSTOM_FIELDS.setdefault("Company", []).extend(
 # Stock Entry: marks a draft Material Transfer already dated by the Stock Transfer
 # Backdate rule, so a re-save never subtracts the days again (utils/stock_transfer_backdate.py).
 # Read-only for everybody; public/js/stock_entry_backdate_override.js unlocks it on a draft
-# for Stock Manager, and the server refuses a change by anyone else.
+# for the Company's "Role Allowed to Untick Backdate", and the server refuses a change by
+# anyone else (and by everyone when that role is not set).
 CUSTOM_FIELDS.setdefault("Stock Entry", []).extend(
 	[
 		{
@@ -724,7 +725,7 @@ CUSTOM_FIELDS.setdefault("Stock Entry", []).extend(
 			"read_only": 1,
 			"no_copy": 1,
 			"print_hide": 1,
-			"description": "Untick (Stock Manager only, Draft) to keep the posting date as entered.",
+			"description": "Untick (Draft, users with the Company's untick role only) to keep the posting date as entered.",
 		},
 		# who unticked it, and when (also written to the entry's timeline)
 		{
@@ -791,6 +792,16 @@ CUSTOM_FIELDS.setdefault("Company", []).extend(
 			"depends_on": "custom_stock_transfer_backdate_enabled",
 			"description": "The transfer is dated this many days before its posting date "
 			"(but never before the System Start Date).",
+		},
+		{
+			"fieldname": "custom_stock_transfer_untick_role",
+			"label": "Role Allowed to Untick Backdate",
+			"fieldtype": "Link",
+			"options": "Role",
+			"insert_after": "custom_stock_transfer_backdate_days",
+			"depends_on": "custom_stock_transfer_backdate_enabled",
+			"description": "Only users with this role can untick Stock Transfer Backdate Applied on a "
+			"draft transfer, so its posting date stays as entered. Empty: nobody can.",
 		},
 	]
 )
