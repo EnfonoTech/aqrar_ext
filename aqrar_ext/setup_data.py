@@ -712,16 +712,43 @@ CUSTOM_FIELDS.setdefault("Company", []).extend(
 
 # Stock Entry: marks a draft Material Transfer already dated by the Stock Transfer
 # Backdate rule, so a re-save never subtracts the days again (utils/stock_transfer_backdate.py).
-CUSTOM_FIELDS.setdefault("Stock Entry", []).append(
-	{
-		"fieldname": "custom_stock_transfer_backdated",
-		"label": "Stock Transfer Backdate Applied",
-		"fieldtype": "Check",
-		"insert_after": "set_posting_time",
-		"read_only": 1,
-		"no_copy": 1,
-		"print_hide": 1,
-	}
+# Read-only for everybody; public/js/stock_entry_backdate_override.js unlocks it on a draft
+# for Stock Manager, and the server refuses a change by anyone else.
+CUSTOM_FIELDS.setdefault("Stock Entry", []).extend(
+	[
+		{
+			"fieldname": "custom_stock_transfer_backdated",
+			"label": "Stock Transfer Backdate Applied",
+			"fieldtype": "Check",
+			"insert_after": "set_posting_time",
+			"read_only": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+			"description": "Untick (Stock Manager only, Draft) to keep the posting date as entered.",
+		},
+		# who unticked it, and when (also written to the entry's timeline)
+		{
+			"fieldname": "custom_stock_transfer_unticked_by",
+			"label": "Backdate Unticked By",
+			"fieldtype": "Link",
+			"options": "User",
+			"insert_after": "custom_stock_transfer_backdated",
+			"read_only": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+			"depends_on": "eval:doc.custom_stock_transfer_unticked_by",
+		},
+		{
+			"fieldname": "custom_stock_transfer_unticked_on",
+			"label": "Backdate Unticked On",
+			"fieldtype": "Datetime",
+			"insert_after": "custom_stock_transfer_unticked_by",
+			"read_only": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+			"depends_on": "eval:doc.custom_stock_transfer_unticked_by",
+		},
+	]
 )
 
 # Stock Transfer Backdate: a Material Transfer Stock Entry is backdated automatically
@@ -743,7 +770,8 @@ CUSTOM_FIELDS.setdefault("Company", []).extend(
 			"default": "0",
 			"insert_after": "custom_stock_transfer_backdate_section",
 			"description": "A Stock Entry with Purpose = Material Transfer for this company is dated "
-			"automatically, once, when it is first saved. Other purposes are not touched.",
+			"automatically on every save of the draft (back from the posting date typed). "
+			"Other purposes are not touched.",
 		},
 		{
 			"fieldname": "custom_stock_transfer_start_date",

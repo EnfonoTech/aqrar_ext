@@ -64,6 +64,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/customer_statement.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/material_request_custom.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/stock_entry_warehouse_qty.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/stock_entry_backdate_override.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/purchase_receipt_final_grn.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_order_payment.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/delivery_note_valuation_rate.js?v={_ASSET_V}",
