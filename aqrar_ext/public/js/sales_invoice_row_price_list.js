@@ -91,11 +91,33 @@ Object.keys(AQRAR_ROW_PL_DOCTYPES).forEach(function (parent_dt) {
 		// buying ones (the Selling / Buying checkboxes on the Price List).
 		setup: function (frm) {
 			const flag = parent_dt === "Purchase Invoice" ? "buying" : "selling";
-			frm.set_query("custom_price_list", "items", function () {
-				return { filters: { [flag]: 1, enabled: 1 } };
+			// The search lists each Price List with this row's item rate beside it.
+			frm.set_query("custom_price_list", "items", function (doc, cdt, cdn) {
+				const row = locals[cdt][cdn] || {};
+				return {
+					query: "aqrar_ext.api.price_list_query.row_price_list_query",
+					filters: { item_code: row.item_code || "", buying: flag === "buying" ? 1 : 0 },
+				};
 			});
 		},
 		selling_price_list: aqrar_reapply_row_price_lists,
 		buying_price_list: aqrar_reapply_row_price_lists,
 	});
 });
+
+
+// Show each option as one line, "R-Price - 1.80": Frappe puts the description on a
+// second line, so put it back inline for this field's dropdown only.
+(function () {
+	if (!document.getElementById("aqrar-pl-inline-style")) {
+		const style = document.createElement("style");
+		style.id = "aqrar-pl-inline-style";
+		style.textContent =
+			".aqrar-pl-inline li br { display: none; }" +
+			".aqrar-pl-inline li .small { display: inline; margin-left: 4px; color: var(--text-color); }";
+		document.head.appendChild(style);
+	}
+	$(document).on("awesomplete-open", 'input[data-fieldname="custom_price_list"]', function () {
+		$(this).closest(".awesomplete").find("ul").addClass("aqrar-pl-inline");
+	});
+})();
