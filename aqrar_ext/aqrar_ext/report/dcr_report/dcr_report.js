@@ -58,6 +58,7 @@ frappe.query_reports["DCR Report"] = {
             "label": "Cost Center",
             "fieldtype": "Link",
             "options": "Cost Center",
+            "default": frappe.defaults.get_user_default("Cost Center"),
             "get_query": function() {
                 var company = frappe.query_report.get_filter_value("company");
                 if (company) {
@@ -65,6 +66,12 @@ frappe.query_reports["DCR Report"] = {
                 }
                 return {};
             }
+        },
+        {
+            "fieldname": "include_draft",
+            "label": "Include Draft",
+            "fieldtype": "Check",
+            "default": 0
         }
     ],
 

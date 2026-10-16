@@ -70,20 +70,22 @@ def execute(filters=None):
     date = filters.get("date")
     company = filters.get("company") or None
     cost_center = filters.get("cost_center") or None
+    include_draft = bool(int(filters.get("include_draft") or 0))
 
     # Opening/Closing cash are GL balances, not lists of documents. Show the
     # single figure rather than an empty table, so the drill-down is never a
     # dead end.
     if group == "balance":
         amount = (get_opening_cash_balance if report_type == "Opening Cash Balance"
-                  else get_closing_cash_balance)(date, company, cost_center)
+                  else get_closing_cash_balance)(date, company, cost_center, include_draft)
         return get_columns(group, report_type), [{
             "voucher_type": "GL Entry",
-            "status": _("Cash account balance from GL"),
+            "status": _("Cash account balance from GL + drafts") if include_draft
+                      else _("Cash account balance from GL"),
             "amount": amount,
         }]
 
-    rows = [_normalise(r) for r in get_rows_for_type(report_type, date, company, cost_center)]
+    rows = [_normalise(r) for r in get_rows_for_type(report_type, date, company, cost_center, include_draft)]
     _enrich(rows)
     return get_columns(group, report_type), rows
 
@@ -156,7 +158,7 @@ def _enrich(rows):
         fetched = frappe.get_all(
             doctype,
             filters={"name": ("in", list(names))},
-            fields=["name"] + list(mapping.keys()),
+            fields=["name", "docstatus"] + list(mapping.keys()),
         )
         lookup = {d["name"]: d for d in fetched}
         for row in rows:
@@ -171,6 +173,9 @@ def _enrich(rows):
                     continue
                 if value not in (None, ""):
                     row[dest] = value
+            # Payment/Journal SQL hard-codes "Paid"/"Posted"; a draft is neither.
+            if doc.docstatus == 0:
+                row["status"] = _("Draft")
 
 
 def _col(label, fieldname, fieldtype="Data", width=140, **kw):
