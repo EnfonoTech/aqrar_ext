@@ -67,7 +67,7 @@ function update_all_last_prices(frm, config) {
             if (frm.doc.docstatus !== 0) return;
             rows.forEach(row => {
                 frappe.model.set_value(
-                    row.doctype, row.name, "custom_last_price", r.message[row.item_code] || 0
+                    row.doctype, row.name, "custom_last_price", last_price_value(row, r.message[row.item_code])
                 );
             });
         },
@@ -87,10 +87,17 @@ function update_row_last_price(frm, row, config) {
         callback(r) {
             if (r.exc || !r.message) return;
             frappe.model.set_value(
-                row.doctype, row.name, "custom_last_price", r.message.last_price || 0
+                row.doctype, row.name, "custom_last_price", last_price_value(row, r.message.last_price)
             );
         },
     });
+}
+
+// Round to the field's own precision before writing. A rate such as 1.018 is
+// saved as 1.02, so writing the raw value made every refresh differ from the
+// saved copy and the form sat on "Not Saved" forever, with no error shown.
+function last_price_value(row, value) {
+    return flt(value || 0, precision("custom_last_price", row));
 }
 
 // ── Branch User: simplified Sales Invoice view ────────────────────────────
