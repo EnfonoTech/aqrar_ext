@@ -22,6 +22,9 @@ function check_valuation_floor(frm, cdt, cdn) {
     // A credit note's rate is pinned to the invoice it reverses; the server
     // skips returns for the same reason.
     if (frm.doc.is_return) return;
+    // A 0 rate is what an item with no Item Price lands on before the user has
+    // typed one; warning then fires on every add. Save still blocks it server-side.
+    if (!flt(row.rate)) return;
 
     frappe.call({
         method: "aqrar_ext.aqrar_ext.utils.valuation_floor.get_valuation_floor",

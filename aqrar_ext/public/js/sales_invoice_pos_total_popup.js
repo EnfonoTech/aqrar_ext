@@ -109,6 +109,47 @@ function aqrar_submit_and_print(frm) {
 
 frappe.ui.form.on("Sales Invoice", {
 	refresh: function (frm) {
+		// Drop Frappe's "Permanently Submit?" confirm: before_submit below already
+		// asks (Credit confirm / payment popup), so the user was asked twice.
+		// Same as sf_trading; otherwise identical to core Form.savesubmit.
+		if (!frm._aqrar_savesubmit_wrapped) {
+			frm._aqrar_savesubmit_wrapped = true;
+			frm.savesubmit = function (btn, callback, on_error) {
+				const me = this;
+				return new Promise(function (resolve) {
+					me.validate_form_action("Submit");
+					frappe.validated = true;
+					me.script_manager.trigger("before_submit").then(function () {
+						if (!frappe.validated) return me.handle_save_fail(btn, on_error);
+						me.save(
+							"Submit",
+							function (r) {
+								if (r.exc) {
+									me.handle_save_fail(btn, on_error);
+								} else {
+									frappe.utils.play_sound("submit");
+									callback && callback();
+									me.script_manager
+										.trigger("on_submit")
+										.then(function () { resolve(me); })
+										.then(function () {
+											if (frappe.route_hooks.after_submit) {
+												const cb = frappe.route_hooks.after_submit;
+												delete frappe.route_hooks.after_submit;
+												cb(me);
+											}
+										});
+								}
+							},
+							btn,
+							function () { me.handle_save_fail(btn, on_error); },
+							resolve
+						);
+					});
+				});
+			};
+		}
+
 		// Payment Details is filled by the payment popup only: no hand-added or
 		// deleted rows (it is not read-only, because Frappe hides an empty one).
 		const grid = frm.fields_dict.custom_payment_details && frm.fields_dict.custom_payment_details.grid;
@@ -177,9 +218,13 @@ frappe.ui.form.on("Sales Invoice", {
 		if (!frm.doc.grand_total || Math.abs(flt(frm.doc.grand_total)) <= 0) return;
 		if (Math.abs(flt(frm.doc.outstanding_amount)) <= 0) return;
 
-		// Every payment mode gets the same payment-options popup after Save
-		// (Credit and Cheque included); the amounts typed there are remembered and
-		// pre-filled when the invoice is submitted.
+		// Credit collects nothing up front, so Save stays quiet; Submit asks for
+		// confirmation. Payment can still be taken later via "Receive Payment".
+		if (aqrar_is_credit(frm)) return;
+
+		// Every other payment mode gets the payment-options popup after Save; the
+		// amounts typed there are remembered and pre-filled when the invoice is
+		// submitted.
 		aqrar_show_payment_popup(frm);
 	},
 });
