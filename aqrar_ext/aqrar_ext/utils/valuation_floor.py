@@ -152,7 +152,7 @@ def validate_valuation_floor(doc, method=None):
 
 	if zero_rate:
 		frappe.throw(
-			_("Rate cannot be zero. Enter a rate, or tick Is Free Item:")
+			_("Rate cannot be zero. Enter a rate:")
 			+ "<br><br>"
 			+ "<br>".join(zero_rate),
 			title=_("Zero Rate"),
