@@ -21,8 +21,10 @@ currency the user is typing in.
 
 Rows skipped, each for a reason:
   * free items — a sample at 0 is not a pricing mistake
-  * (a zero rate is NOT skipped: selling at 0 is below cost, so it is warned and
-    blocked like any other rate unless the row is marked a free item)
+  * (a zero rate is NOT skipped: it is blocked on its own, even for an item with
+    no cost, unless the row is a free item or the doc is a rate-adjustment
+    debit note. The live client warning stays quiet at 0, since that is just an
+    item with no Item Price before a rate has been typed)
   * returns — a credit note's rate is pinned to the invoice it reverses, and
     ERPNext already refuses a rate above it. Blocking one for being below today's
     cost would make a legitimate return unsaveable.
@@ -113,6 +115,7 @@ def validate_valuation_floor(doc, method=None):
 	conversion_rate = flt(doc.get("conversion_rate")) or 1.0
 
 	below_cost = []
+	zero_rate = []
 
 	for item in doc.get("items") or []:
 		if not item.get("item_code") or item.get("is_free_item"):
@@ -120,6 +123,13 @@ def validate_valuation_floor(doc, method=None):
 
 		# A zero rate is below cost too (free items are skipped above).
 		rate = flt(item.get("base_net_rate"))
+
+		# Checked before the cost lookup: an item with no stock or no valuation
+		# has no cost, and would otherwise slip through at 0. A rate-adjustment
+		# debit note carries its own adjustment rates, so it is left alone.
+		if rate <= 0 and not doc.get("is_debit_note"):
+			zero_rate.append(_("Row {0} ({1})").format(item.idx, item.item_code))
+			continue
 
 		if not frappe.get_cached_value("Item", item.item_code, "is_stock_item"):
 			continue
@@ -138,6 +148,14 @@ def validate_valuation_floor(doc, method=None):
 				item.item_code,
 				fmt_money(floor / conversion_rate, currency=currency),
 			)
+		)
+
+	if zero_rate:
+		frappe.throw(
+			_("Rate cannot be zero. Enter a rate, or tick Is Free Item:")
+			+ "<br><br>"
+			+ "<br>".join(zero_rate),
+			title=_("Zero Rate"),
 		)
 
 	if below_cost:
