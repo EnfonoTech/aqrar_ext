@@ -72,6 +72,11 @@ def get_last_sold_prices(customer=None, item_codes=None, source="sales"):
 		return {}
 
 	_check_read_permission(source)
+	if source != "purchase":
+		# Selling side: the customer's own last rate across every sales document,
+		# and nothing at all for an item they have never bought.
+		return _latest_customer_rates(item_codes, customer) if customer else {}
+
 	child, parent, party_field = _tables(source)
 
 	prices = {}
@@ -83,6 +88,44 @@ def get_last_sold_prices(customer=None, item_codes=None, source="sales"):
 		prices.update(_latest_rates(child, parent, missing, party_field, None))
 
 	return prices
+
+
+# (child table, parent table, date column, extra exclusion). Sales Order has no
+# is_return; Sales Invoice also skips consolidated POS and debit-note invoices.
+_CUSTOMER_DOCS = (
+	("Sales Invoice Item", "Sales Invoice", "posting_date", "AND p.is_return = 0 AND p.is_consolidated = 0 AND p.is_debit_note = 0"),
+	("Delivery Note Item", "Delivery Note", "posting_date", "AND p.is_return = 0"),
+	("Sales Order Item", "Sales Order", "transaction_date", ""),
+)
+
+
+def _latest_customer_rates(item_codes, customer):
+	"""Latest rate per item this customer was given on any submitted sales
+	document (Sales Invoice, Delivery Note, Sales Order), newest first."""
+	selects = [
+		"""SELECT c.item_code AS item_code, c.rate AS rate,
+				p.{date} AS doc_date, p.creation AS creation
+			FROM `tab{child}` c
+			INNER JOIN `tab{parent}` p ON p.name = c.parent
+			WHERE c.item_code IN %(item_codes)s AND p.customer = %(customer)s
+				AND p.docstatus = 1 AND c.rate > 0 {extra}""".format(
+			child=child, parent=parent, date=date, extra=extra
+		)
+		for child, parent, date, extra in _CUSTOMER_DOCS
+	]
+	rows = frappe.db.sql(
+		"""
+		SELECT item_code, rate FROM (
+			SELECT item_code, rate, ROW_NUMBER() OVER (
+				PARTITION BY item_code ORDER BY doc_date DESC, creation DESC
+			) AS rn
+			FROM ({union}) u
+		) ranked WHERE rn = 1
+		""".format(union=" UNION ALL ".join(selects)),
+		{"item_codes": tuple(item_codes), "customer": customer},
+		as_dict=True,
+	)
+	return {r.item_code: flt(r.rate) for r in rows}
 
 
 def _latest_rates(child, parent, item_codes, party_field, party):
