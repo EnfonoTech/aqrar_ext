@@ -45,7 +45,8 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/workflowapproval.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_return.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/return_qty_positive.js?v={_ASSET_V}",
-	f"/assets/aqrar_ext/js/purchase_invoice_selling_price.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/item_price_columns.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/item_location_stock.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/purchase_invoice_backdate_stock.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_branch_price_list.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_row_price_list.js?v={_ASSET_V}",
@@ -350,3 +351,16 @@ jenv = {
 		"aqrar_ext.aqrar_ext.utils.print_helpers.get_display_mode",
 	]
 }
+
+# Fill the read-only Valuation Rate column on item rows server-side too, so a
+# document made outside the form (API, import, script) doesn't save it empty.
+_SET_ROW_VALUATION_HOOK = "aqrar_ext.aqrar_ext.utils.valuation_floor.set_row_valuation_rates"
+for _dt in (
+	"Sales Invoice", "Quotation", "Sales Order", "Delivery Note",
+	"Purchase Invoice", "Purchase Order", "Purchase Receipt", "Stock Entry",
+):
+	_events = doc_events.setdefault(_dt, {})
+	_validate = _events.get("validate") or []
+	_events["validate"] = (
+		[_validate] if isinstance(_validate, str) else list(_validate)
+	) + [_SET_ROW_VALUATION_HOOK]

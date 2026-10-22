@@ -163,3 +163,29 @@ def validate_valuation_floor(doc, method=None):
 			_("Selling below cost:") + "<br><br>" + "<br>".join(below_cost),
 			title=_("Price Below Cost"),
 		)
+
+
+def set_row_valuation_rates(doc, method=None):
+	"""Fill each row's read-only `custom_valuation_rate` on save.
+
+	The form fills it from the browser (public/js/item_valuation_rate.js), but a
+	document made any other way — API, import, a script — would save it empty.
+	Same lookup as the form: warehouse cost, else company-wide, per row UOM.
+	"""
+	if doc.docstatus != 0:
+		return
+
+	company = doc.get("company")
+	parent_warehouse = doc.get("set_warehouse")
+	for item in doc.get("items") or []:
+		if not item.get("item_code"):
+			continue
+		if not frappe.get_cached_value("Item", item.item_code, "is_stock_item"):
+			item.custom_valuation_rate = 0
+			continue
+		warehouse = (
+			item.get("warehouse") or item.get("s_warehouse") or item.get("t_warehouse") or parent_warehouse
+		)
+		item.custom_valuation_rate = item_cost(item.item_code, warehouse, company) * (
+			flt(item.get("conversion_factor")) or 1.0
+		)
