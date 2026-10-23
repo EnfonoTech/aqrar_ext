@@ -194,6 +194,33 @@ function row_cost(row, insights) {
     return { value: flt(insights.last_purchase_rate), label: "Last Purchase", scoped: false };
 }
 
+// Put the panel under the row's item input (row open for editing), else under the
+// row itself. Without any anchor an absolutely positioned box lands at the very
+// bottom of the page, off screen, and Price Assist looks like it did nothing.
+function place_price_assist_box($box, row) {
+    const $row = $(`.grid-row[data-name="${row.name}"]`);
+    const $input = $row.find('input[data-fieldname="item_code"]');
+    const $anchor = $input.length ? $input : $row;
+    let top, left;
+    if ($anchor.length && $anchor.is(":visible")) {
+        const pos = $anchor.offset();
+        top = pos.top + $anchor.outerHeight() + 8;
+        left = pos.left;
+    } else {
+        top = $(window).scrollTop() + 120;
+        left = Math.max(20, ($(window).width() - $box.outerWidth()) / 2);
+    }
+    // keep it inside the window horizontally
+    left = Math.max(10, Math.min(left, $(window).width() - $box.outerWidth() - 10));
+    $box.css({ top: top, left: left });
+    // and scroll it into view if it opened below the fold
+    const bottom = top + $box.outerHeight();
+    const view_bottom = $(window).scrollTop() + $(window).height();
+    if (bottom > view_bottom) {
+        $("html, body").animate({ scrollTop: Math.max(0, bottom - $(window).height() + 20) }, 150);
+    }
+}
+
 $.extend(aqrar_ext.price_assist, {
     show(frm, row, config) {
         this.hide(row);
@@ -235,7 +262,7 @@ $.extend(aqrar_ext.price_assist, {
         const customerField = config?.customer_field || "customer";
         const customer = frm.doc[customerField];
 
-        $box.append(`<div class="pa-customer">${customer}</div>`);
+        $box.append(`<div class="pa-customer">${frappe.utils.escape_html(frm.doc.customer_name || customer || "")}</div>`);
         $box.append(`<div class="pa-title">Price History: ${row.item_name || row.item_code}</div>`);
 
         const current_rate = flt(row.stock_uom_rate ?? row.rate);
@@ -312,11 +339,7 @@ $.extend(aqrar_ext.price_assist, {
             });
         }
 
-        const $input = $(`.grid-row[data-name="${row.name}"] input[data-fieldname="item_code"]`);
-        if ($input.length) {
-            const pos = $input.offset();
-            $box.css({ top: pos.top + $input.outerHeight() + 8, left: pos.left });
-        }
+        place_price_assist_box($box, row);
 
         $box.on("click", ".pa-use", function () {
             frappe.model.set_value(row.doctype, row.name, "rate", $(this).closest(".pa-line").data("rate"));
@@ -377,7 +400,7 @@ $.extend(aqrar_ext.price_assist, {
         const $box = $(`<div class="si-price-assist" id="${id}"></div>`).appendTo("body");
         const supplier = frm.doc[config.party_field || "supplier"];
 
-        $box.append(`<div class="pa-customer">${supplier}</div>`);
+        $box.append(`<div class="pa-customer">${frappe.utils.escape_html(frm.doc.supplier_name || supplier || "")}</div>`);
         $box.append(`<div class="pa-title">Purchase Price: ${row.item_name || row.item_code}</div>`);
 
         const current_rate = flt(row.stock_uom_rate ?? row.rate);
@@ -453,11 +476,7 @@ $.extend(aqrar_ext.price_assist, {
             });
         }
 
-        const $input = $(`.grid-row[data-name="${row.name}"] input[data-fieldname="item_code"]`);
-        if ($input.length) {
-            const pos = $input.offset();
-            $box.css({ top: pos.top + $input.outerHeight() + 8, left: pos.left });
-        }
+        place_price_assist_box($box, row);
 
         $box.on("click", ".pa-use", function () {
             frappe.model.set_value(row.doctype, row.name, "rate", $(this).closest(".pa-line").data("rate"));
@@ -586,6 +605,8 @@ function open_item_history_dialog(frm, default_item_code, is_purchase) {
       '<table class="table table-bordered table-sm" id="price-history-table">',
       '<thead>',
       '<tr>',
+      '<th>Document</th>',
+      '<th>Date</th>',
       '<th>Item Code</th>',
       '<th>Item Name</th>',
       '<th>Customer</th>',
@@ -594,6 +615,8 @@ function open_item_history_dialog(frm, default_item_code, is_purchase) {
       '<th>Last Purchase Rate</th>',
       '</tr>',
       '<tr class="filter-row">',
+      '<th><input type="text" class="form-control input-sm" placeholder="Filter Document"></th>',
+      '<th><input type="text" class="form-control input-sm" placeholder="Filter Date"></th>',
       '<th><input type="text" class="form-control input-sm" placeholder="Filter Item Code"></th>',
       '<th><input type="text" class="form-control input-sm" placeholder="Filter Item Name"></th>',
       '<th><input type="text" class="form-control input-sm" placeholder="Filter Customer"></th>',
@@ -609,12 +632,18 @@ function open_item_history_dialog(frm, default_item_code, is_purchase) {
       var item_code = frappe.utils.escape_html(r.item_code || '');
       var item_name = frappe.utils.escape_html(r.item_name || '');
       var cust = frappe.utils.escape_html(r.customer_name || r.customer || '');
+      var doc_name = frappe.utils.escape_html(r.sales_invoice || '');
+      var date = frappe.utils.escape_html(frappe.datetime.str_to_user(r.posting_date) || '');
+      // Sales Rate is the net rate (after discounts), per stock unit.
+      var net_rate = r.net_stock_rate ?? r.net_rate ?? 0;
       out += [
         '<tr>',
+        `<td><a href="#" data-doctype="Sales Invoice" data-name="${doc_name}">${doc_name}</a></td>`,
+        `<td>${date}</td>`,
         `<td>${item_code}</td>`,
         `<td>${item_name}</td>`,
         `<td>${cust}</td>`,
-        `<td class="text-right">${format_currency(r.stock_uom_rate || 0, r.currency || '')}</td>`,
+        `<td class="text-right">${format_currency(net_rate, r.currency || '')}</td>`,
         `<td class="text-right">${format_number(r.stock_qty ?? r.qty ?? 0, null)}</td>`,
         `<td class="text-right">${format_currency(r.last_purchase_rate || 0, r.currency || '')}</td>`,
         '</tr>'
@@ -631,22 +660,24 @@ function open_item_history_dialog(frm, default_item_code, is_purchase) {
       '<table class="table table-bordered table-sm" id="price-history-table">',
       '<thead>',
       '<tr>',
+      '<th>Document</th>',
+      '<th>Date</th>',
       '<th>Item Code</th>',
       '<th>Item Name</th>',
       '<th>Supplier</th>',
       '<th>Purchase Rate</th>',
       '<th>Qty</th>',
       '<th>Last Selling Rate</th>',
-      '<th>Document</th>',
       '</tr>',
       '<tr class="filter-row">',
+      '<th><input type="text" class="form-control input-sm" placeholder="Filter Document"></th>',
+      '<th><input type="text" class="form-control input-sm" placeholder="Filter Date"></th>',
       '<th><input type="text" class="form-control input-sm" placeholder="Filter Item Code"></th>',
       '<th><input type="text" class="form-control input-sm" placeholder="Filter Item Name"></th>',
       '<th><input type="text" class="form-control input-sm" placeholder="Filter Supplier"></th>',
       '<th><input type="text" class="form-control input-sm" placeholder="Filter Rate"></th>',
       '<th><input type="text" class="form-control input-sm" placeholder="Filter Qty"></th>',
       '<th><input type="text" class="form-control input-sm" placeholder="Filter Last Selling"></th>',
-      '<th><input type="text" class="form-control input-sm" placeholder="Filter Document"></th>',
       '</tr>',
       '</thead>',
       '<tbody>'
@@ -660,13 +691,14 @@ function open_item_history_dialog(frm, default_item_code, is_purchase) {
       var doctype = r.doctype || 'Purchase Invoice';
       out += [
         '<tr>',
+        `<td><a href="#" data-doctype="${doctype}" data-name="${doc_name}">${doc_name}</a></td>`,
+        `<td>${frappe.utils.escape_html(frappe.datetime.str_to_user(r.posting_date) || '')}</td>`,
         `<td>${item_code}</td>`,
         `<td>${item_name}</td>`,
         `<td>${supp}</td>`,
-        `<td class="text-right">${format_currency(r.stock_uom_rate ?? r.purchase_rate ?? 0, r.currency || '')}</td>`,
+        `<td class="text-right">${format_currency(r.net_stock_rate ?? r.stock_uom_rate ?? r.purchase_rate ?? 0, r.currency || '')}</td>`,
         `<td class="text-right">${format_number(r.stock_qty ?? r.qty ?? 0, null)}</td>`,
         `<td class="text-right">${format_currency(r.last_selling_rate || 0, r.currency || '')}</td>`,
-        `<td><a href="#" data-doctype="${doctype}" data-name="${doc_name}">${doc_name}</a></td>`,
         '</tr>'
       ].join('');
     });

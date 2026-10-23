@@ -58,14 +58,55 @@ def has_price_override_role(user=None):
 	)
 
 
-def item_cost(item_code, warehouse=None, company=None):
+def fifo_cost(item_code, warehouse, qty=0):
+	"""Cost per stock unit of the next `qty` units to leave `warehouse`, FIFO.
+
+	Reads the warehouse's current FIFO queue (the `stock_queue` on its latest Stock
+	Ledger Entry: [[qty, rate], ...] oldest layer first) and takes `qty` from the
+	front, so the figure is the oldest layer's rate, blended across layers only when
+	the quantity runs past the first one. Returns 0 when there is no queue (item on
+	Moving Average, or no stock): callers fall back to the Bin rate.
+	"""
+	queue = frappe.db.get_value(
+		"Stock Ledger Entry",
+		{"item_code": item_code, "warehouse": warehouse, "is_cancelled": 0},
+		"stock_queue",
+		order_by="posting_date desc, posting_time desc, creation desc",
+	)
+	layers = [(flt(q), flt(r)) for q, r in (frappe.parse_json(queue) or [])] if queue else []
+	layers = [(q, r) for q, r in layers if q > 0]
+	if not layers:
+		return 0.0
+
+	qty = flt(qty)
+	if qty <= 0:
+		return layers[0][1]
+
+	remaining, value = qty, 0.0
+	for layer_qty, rate in layers:
+		take = min(remaining, layer_qty)
+		value += take * rate
+		remaining -= take
+		if remaining <= 0:
+			break
+	if remaining > 0:
+		# asked for more than is in stock: price the excess at the newest layer
+		value += remaining * layers[-1][1]
+	return value / qty
+
+
+def item_cost(item_code, warehouse=None, company=None, qty=0):
 	"""Cost per stock unit, in company currency.
 
-	Warehouse-specific when the row names one, otherwise the company-wide
+	With a warehouse, the FIFO cost of the next `qty` units out of it (the oldest
+	layer), else the warehouse's Bin rate; with no warehouse, the company-wide
 	weighted rate. Returns 0 when the item has no stock anywhere, which the
 	callers read as "nothing to enforce".
 	"""
 	if warehouse:
+		rate = fifo_cost(item_code, warehouse, qty)
+		if rate:
+			return rate
 		rate = flt(
 			frappe.db.get_value(
 				"Bin", {"item_code": item_code, "warehouse": warehouse}, "valuation_rate"
@@ -78,7 +119,7 @@ def item_cost(item_code, warehouse=None, company=None):
 
 
 @frappe.whitelist()
-def get_valuation_floor(item_code, warehouse=None, conversion_factor=1.0, company=None):
+def get_valuation_floor(item_code, warehouse=None, conversion_factor=1.0, company=None, qty=0):
 	"""Minimum rate for one row, in company currency. Used for the live warning."""
 	if not item_code:
 		return {"floor": 0.0}
@@ -88,7 +129,8 @@ def get_valuation_floor(item_code, warehouse=None, conversion_factor=1.0, compan
 	if not frappe.get_cached_value("Item", item_code, "is_stock_item"):
 		return {"floor": 0.0}
 
-	cost = item_cost(item_code, warehouse, company)
+	# `qty` is in the row's UOM; FIFO is walked in stock units.
+	cost = item_cost(item_code, warehouse, company, flt(qty) * (flt(conversion_factor) or 1.0))
 	return {"floor": cost * (flt(conversion_factor) or 1.0)}
 
 
@@ -134,7 +176,12 @@ def validate_valuation_floor(doc, method=None):
 		if not frappe.get_cached_value("Item", item.item_code, "is_stock_item"):
 			continue
 
-		cost = item_cost(item.item_code, item.get("warehouse") or parent_warehouse, company)
+		cost = item_cost(
+			item.item_code,
+			item.get("warehouse") or parent_warehouse,
+			company,
+			flt(item.get("stock_qty")) or flt(item.get("qty")) * (flt(item.get("conversion_factor")) or 1.0),
+		)
 		if not cost:
 			continue
 
@@ -183,9 +230,15 @@ def set_row_valuation_rates(doc, method=None):
 		if not frappe.get_cached_value("Item", item.item_code, "is_stock_item"):
 			item.custom_valuation_rate = 0
 			continue
+		cf = flt(item.get("conversion_factor")) or 1.0
+		# Stock Entry receipt row (no source warehouse): stock comes in at the rate
+		# typed on the row, not at the warehouse's existing cost.
+		if doc.doctype == "Stock Entry" and not item.get("s_warehouse"):
+			item.custom_valuation_rate = flt(item.get("basic_rate")) * cf
+			continue
 		warehouse = (
 			item.get("warehouse") or item.get("s_warehouse") or item.get("t_warehouse") or parent_warehouse
 		)
-		item.custom_valuation_rate = item_cost(item.item_code, warehouse, company) * (
-			flt(item.get("conversion_factor")) or 1.0
-		)
+		item.custom_valuation_rate = item_cost(
+			item.item_code, warehouse, company, flt(item.get("qty")) * cf
+		) * cf

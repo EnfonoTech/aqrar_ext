@@ -1,25 +1,14 @@
-// Standard Selling Price / Wholesale Price columns on the item table of every sales
-// and purchase document. Each row shows the current general price (the default
+// Standard Selling Price / Wholesale Price columns on the Purchase Invoice item table.
+// Each row shows the current general price (the default
 // selling price list and the Wholesale Price List from Selling Settings, in the
-// row's UOM). On a Purchase Invoice the buyer can change them (Price List Editor
-// role only) and the server writes changed prices to Item Price on submit
-// (utils/selling_price.update_standard_selling_prices); on every other document
-// they are display only.
+// row's UOM). The buyer can change them (Price List Editor role only)
+// and the server writes changed prices to Item Price on submit
+// (utils/selling_price.update_standard_selling_prices).
 
 (function () {
     const FIELD = "custom_standard_selling_rate";
     const WHOLESALE_FIELD = "custom_wholesale_selling_rate";
     const PRICE_FIELDS = [FIELD, WHOLESALE_FIELD];
-
-    const CHILD_DOCTYPES = {
-        "Sales Invoice": "Sales Invoice Item",
-        "Quotation": "Quotation Item",
-        "Sales Order": "Sales Order Item",
-        "Delivery Note": "Delivery Note Item",
-        "Purchase Invoice": "Purchase Invoice Item",
-        "Purchase Order": "Purchase Order Item",
-        "Purchase Receipt": "Purchase Receipt Item",
-    };
 
     function fetch_rates(frm, rows) {
         rows = rows.filter((row) => row.item_code && row.uom);
@@ -51,8 +40,7 @@
     // Only users with the Price List Editor role may change these prices;
     // everyone else sees them read-only (the server ignores their edits too).
     function lock_price_fields(frm, can_edit) {
-        if (frm.doctype !== "Purchase Invoice") can_edit = false;
-        else if (can_edit === undefined) {
+        if (can_edit === undefined) {
             can_edit = frappe.user.has_role("Price List Editor") || frappe.session.user === "Administrator";
         }
         const grid = frm.fields_dict.items && frm.fields_dict.items.grid;
@@ -84,14 +72,12 @@
         attempt();
     }
 
-    Object.entries(CHILD_DOCTYPES).forEach(([parent, child]) => {
-        frappe.ui.form.on(parent, {
-            onload: fill_empty,
-            refresh: fill_empty,
-        });
-        frappe.ui.form.on(child, {
-            item_code: reload_row,
-            uom: reload_row,
-        });
+    frappe.ui.form.on("Purchase Invoice", {
+        onload: fill_empty,
+        refresh: fill_empty,
+    });
+    frappe.ui.form.on("Purchase Invoice Item", {
+        item_code: reload_row,
+        uom: reload_row,
     });
 })();

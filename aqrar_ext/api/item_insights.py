@@ -358,6 +358,8 @@ def get_item_sales_history(item_code=None, limit=20, cost_center=None):
 			sii.stock_qty,
 			sii.uom,
 			sii.rate          AS sales_rate,
+			sii.net_rate      AS net_rate,
+			sii.net_rate / NULLIF(sii.conversion_factor, 0) AS net_stock_rate,
 			sii.amount        AS sales_amount,
 			si.currency,
 			item.last_purchase_rate,
@@ -389,7 +391,8 @@ def get_item_purchase_history(item_code=None, limit=20, cost_center=None):
 	params = {"limit": limit, "item_code": item_code, "cost_center": cost_center}
 
 	blocks = []
-	for parent, child, p, c in _PURCHASE_SOURCES:
+	# Purchase Invoices only: the dialog lists what was actually billed, not receipts.
+	for parent, child, p, c in _PURCHASE_SOURCES[:1]:
 		where = f"{p}.docstatus = 1"
 		if item_code:
 			where += f" AND {c}.item_code = %(item_code)s"
@@ -410,6 +413,7 @@ def get_item_purchase_history(item_code=None, limit=20, cost_center=None):
 				{c}.qty,
 				{c}.stock_qty,
 				{c}.rate AS purchase_rate,
+				{c}.net_rate / NULLIF({c}.conversion_factor, 0) AS net_stock_rate,
 				{c}.amount,
 				{p}.currency,
 				{c}.stock_uom_rate
