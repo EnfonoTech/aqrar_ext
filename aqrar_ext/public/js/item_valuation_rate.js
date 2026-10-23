@@ -20,12 +20,21 @@ function set_row_valuation_rate(frm, row) {
     if (!row || !row.item_code) return;
     const item_code = row.item_code;
 
+    // Stock Entry receipt row (no source warehouse): stock comes in at the rate
+    // typed on the row, not at the warehouse's existing cost.
+    if (row.doctype === "Stock Entry Detail" && !row.s_warehouse) {
+        frappe.model.set_value(row.doctype, row.name, "custom_valuation_rate",
+            flt(row.basic_rate) * (flt(row.conversion_factor) || 1));
+        return;
+    }
+
     frappe.call({
         method: "aqrar_ext.aqrar_ext.utils.valuation_floor.get_valuation_floor",
         args: {
             item_code: item_code,
             warehouse: row.warehouse || row.s_warehouse || row.t_warehouse || frm.doc.set_warehouse || "",
             conversion_factor: row.conversion_factor || 1,
+            qty: row.qty || 0,
             company: frm.doc.company || "",
         },
         callback(r) {
@@ -65,6 +74,8 @@ for (const [parent, child] of Object.entries(PARENTS)) {
         s_warehouse: update,
         t_warehouse: update,
         uom: update,
+        qty: update,
+        basic_rate: update,
         conversion_factor: update,
     });
 }

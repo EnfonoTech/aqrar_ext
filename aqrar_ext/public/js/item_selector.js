@@ -631,8 +631,8 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             }
         });
 
-        // Among the rows that pass the threshold, surface the best-stocked
-        // ones first — not just "enough", but "most available" first. Moves
+        // Among the rows that pass the threshold, list them by stock in
+        // ascending order, so the item closest to the minimum comes first. Moves
         // the actual row elements (not clones), so their click handlers stay
         // attached; hidden rows are pushed after so they don't interleave.
         if (has_threshold) {
@@ -640,7 +640,7 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             var $visible_sorted = $rows.filter(":visible").sort(function (a, b) {
                 var stock_a = (me.stock_map && me.stock_map[$(a).data("aqrar-item")]) || 0;
                 var stock_b = (me.stock_map && me.stock_map[$(b).data("aqrar-item")]) || 0;
-                return stock_b - stock_a;
+                return stock_a - stock_b;
             });
             var $hidden = $rows.filter(":hidden");
 

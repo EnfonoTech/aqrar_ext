@@ -32,6 +32,7 @@ function check_valuation_floor(frm, cdt, cdn) {
             item_code: row.item_code,
             warehouse: row.warehouse || frm.doc.set_warehouse || "",
             conversion_factor: row.conversion_factor || 1,
+            qty: row.qty || 0,
             company: frm.doc.company || "",
         },
         callback(r) {

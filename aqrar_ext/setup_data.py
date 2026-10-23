@@ -450,25 +450,22 @@ VALUATION_RATE_CHILD_DOCTYPES = (
 	"Stock Entry Detail",
 )
 # Frappe drops grid columns once their widths pass 10, so each item grid is laid out
-# to total exactly 10 with the Standard / Wholesale Price columns and the Stock
-# button; columns that no longer fit are taken out of the list view.
+# to total exactly 10 with the Stock button (and, on Purchase Invoice, the Standard /
+# Wholesale Price columns); columns that no longer fit are taken out of the list view.
 VALUATION_GRID_WIDTHS = {
-	"Sales Invoice Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "rate": 1, "custom_valuation_rate": 1, "custom_standard_selling_rate": 1, "custom_wholesale_selling_rate": 1, "custom_view_stock": 1, "amount": 1},
-	"Quotation Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "rate": 1, "custom_valuation_rate": 1, "custom_standard_selling_rate": 1, "custom_wholesale_selling_rate": 1, "custom_view_stock": 1, "amount": 1},
-	"Sales Order Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "rate": 1, "custom_valuation_rate": 1, "custom_standard_selling_rate": 1, "custom_wholesale_selling_rate": 1, "custom_view_stock": 1, "amount": 1},
-	"Delivery Note Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "custom_valuation_rate": 1, "custom_standard_selling_rate": 1, "custom_wholesale_selling_rate": 1, "custom_view_stock": 1, "amount": 1},
+	"Sales Invoice Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
+	"Quotation Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
+	"Sales Order Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
+	"Delivery Note Item": {"item_code": 3, "custom_price_list": 2, "qty": 1, "price_list_rate": 1, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
 	"Purchase Invoice Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "rate": 1, "custom_valuation_rate": 1, "custom_standard_selling_rate": 1, "custom_wholesale_selling_rate": 1, "custom_view_stock": 1, "amount": 1},
-	"Purchase Order Item": {"item_code": 2, "schedule_date": 1, "qty": 1, "rate": 1, "custom_valuation_rate": 1, "custom_standard_selling_rate": 1, "custom_wholesale_selling_rate": 1, "custom_view_stock": 1, "amount": 1},
-	"Purchase Receipt Item": {"item_code": 2, "qty": 1, "rejected_qty": 1, "rate": 1, "custom_valuation_rate": 1, "custom_standard_selling_rate": 1, "custom_wholesale_selling_rate": 1, "custom_view_stock": 1, "amount": 1},
+	"Purchase Order Item": {"item_code": 2, "schedule_date": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
+	"Purchase Receipt Item": {"item_code": 2, "qty": 1, "rejected_qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
 }
 VALUATION_GRID_HIDDEN = {
-	"Sales Invoice Item": ("price_list_rate",),
-	"Quotation Item": ("price_list_rate",),
-	"Sales Order Item": ("price_list_rate", "delivery_date"),
-	"Delivery Note Item": ("price_list_rate",),
+	"Sales Order Item": ("delivery_date",),
 	"Purchase Invoice Item": ("price_list_rate",),
-	"Purchase Order Item": ("price_list_rate", "uom"),
-	"Purchase Receipt Item": ("price_list_rate", "net_amount"),
+	"Purchase Order Item": ("uom",),
+	"Purchase Receipt Item": ("net_amount",),
 }
 
 
@@ -480,6 +477,8 @@ def ensure_valuation_rate_grid_widths():
 		if not frappe.db.exists("DocType", doctype):
 			continue
 		props = [(f, "in_list_view", 0, "Check") for f in VALUATION_GRID_HIDDEN.get(doctype, ())]
+		if "price_list_rate" in widths:
+			props.append(("price_list_rate", "in_list_view", 1, "Check"))
 		props += [(f, "columns", w, "Int") for f, w in widths.items()]
 		for fieldname, prop, value, ptype in props:
 			if frappe.db.exists(
@@ -562,6 +561,19 @@ def ensure_price_override_role():
 SELLING_PRICE_EDITOR_ROLE = "Price List Editor"
 
 
+def remove_price_columns_from_other_documents():
+	"""The Standard / Wholesale Price columns live on Purchase Invoice items only; an
+	earlier version also put them on the other sales / purchase documents."""
+	for dt in (
+		"Sales Invoice Item", "Quotation Item", "Sales Order Item", "Delivery Note Item",
+		"Purchase Order Item", "Purchase Receipt Item",
+	):
+		for fieldname in ("custom_standard_selling_rate", "custom_wholesale_selling_rate"):
+			name = f"{dt}-{fieldname}"
+			if frappe.db.exists("Custom Field", name):
+				frappe.delete_doc("Custom Field", name, force=True, ignore_permissions=True)
+
+
 def ensure_selling_price_editor_role():
 	"""Users with this role can edit the Standard / Wholesale price columns on
 	Purchase Invoice items (and so update Item Price on submit); others see them
@@ -622,6 +634,7 @@ def create():
 	undo_price_override_on_minimum_price()
 	ensure_price_override_role()
 	ensure_selling_price_editor_role()
+	remove_price_columns_from_other_documents()
 	enforce_sales_person_permission_flag()
 	ensure_temporary_item_naming_series()
 	check_expected_modes_of_payment()
@@ -662,52 +675,52 @@ for _dt in _RATE_TRACKING_DOCTYPES:
 		dict(field) for field in _RATE_TRACKING_FIELDS
 	)
 
-# Item-table columns on every sales / purchase document: the row's current
-# Standard and Wholesale selling price (Selling Settings / Wholesale Price List, row
-# UOM) and a Stock button that lists the item's quantity per warehouse of the
-# document's company (public/js/item_price_columns.js, item_location_stock.js).
-# Only the Purchase Invoice's prices are editable (Price List Editor role); they are
-# written to Item Price on submit by utils/selling_price.update_standard_selling_prices.
+# Purchase Invoice only: the row's current Standard and Wholesale selling price
+# (Selling Settings / Wholesale Price List, row UOM). Editable by the Price List
+# Editor role; written to Item Price on submit by
+# utils/selling_price.update_standard_selling_prices.
+CUSTOM_FIELDS.setdefault("Purchase Invoice Item", []).extend(
+	[
+		{
+			"fieldname": "custom_standard_selling_rate",
+			"label": "Standard Selling Price",
+			"fieldtype": "Currency",
+			"insert_after": "rate",
+			"in_list_view": 1,
+			"columns": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+		},
+		{
+			"fieldname": "custom_wholesale_selling_rate",
+			"label": "Wholesale Price",
+			"fieldtype": "Currency",
+			"insert_after": "custom_standard_selling_rate",
+			"in_list_view": 1,
+			"columns": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+		},
+	]
+)
+# Stock button on the item table of every sales / purchase document: lists the item's
+# quantity per warehouse of the document's company (public/js/item_location_stock.js).
 for _dt in (
 	"Sales Invoice Item", "Quotation Item", "Sales Order Item", "Delivery Note Item",
 	"Purchase Invoice Item", "Purchase Order Item", "Purchase Receipt Item",
 ):
-	_read_only = 0 if _dt == "Purchase Invoice Item" else 1
-	CUSTOM_FIELDS.setdefault(_dt, []).extend(
-		[
-			{
-				"fieldname": "custom_standard_selling_rate",
-				"label": "Standard Selling Price",
-				"fieldtype": "Currency",
-				"insert_after": "rate",
-				"in_list_view": 1,
-				"columns": 1,
-				"read_only": _read_only,
-				"no_copy": 1,
-				"print_hide": 1,
-			},
-			{
-				"fieldname": "custom_wholesale_selling_rate",
-				"label": "Wholesale Price",
-				"fieldtype": "Currency",
-				"insert_after": "custom_standard_selling_rate",
-				"in_list_view": 1,
-				"columns": 1,
-				"read_only": _read_only,
-				"no_copy": 1,
-				"print_hide": 1,
-			},
-			{
-				"fieldname": "custom_view_stock",
-				"label": "Stock",
-				"fieldtype": "Button",
-				"insert_after": "custom_wholesale_selling_rate",
-				"in_list_view": 1,
-				"columns": 1,
-				"print_hide": 1,
-			},
-		]
+	CUSTOM_FIELDS.setdefault(_dt, []).append(
+		{
+			"fieldname": "custom_view_stock",
+			"label": "Stock",
+			"fieldtype": "Button",
+			"insert_after": "custom_wholesale_selling_rate" if _dt == "Purchase Invoice Item" else "rate",
+			"in_list_view": 1,
+			"columns": 1,
+			"print_hide": 1,
+		}
 	)
+
 CUSTOM_FIELDS.setdefault("Selling Settings", []).append(
 	{
 		"fieldname": "custom_wholesale_price_list",
@@ -715,7 +728,7 @@ CUSTOM_FIELDS.setdefault("Selling Settings", []).append(
 		"fieldtype": "Link",
 		"options": "Price List",
 		"insert_after": "selling_price_list",
-		"description": "Shown as the Wholesale Price column on item tables; editable on Purchase Invoice items.",
+		"description": "Shown and edited as the Wholesale Price column on Purchase Invoice items.",
 	}
 )
 
