@@ -7,7 +7,7 @@ Item Price on submit — not on save, so a draft never moves a live price — an
 never from a debit note, which reverses a purchase rather than making one.
 
 Only the general price is read or written: an Item Price with no customer and
-no supplier. Customer-specific rows (see utils/last_price.py) are a different
+no supplier. Customer-specific rows are a different
 price and are left alone.
 """
 
