@@ -111,11 +111,6 @@ _RETURN_QTY_HOOK = "aqrar_ext.aqrar_ext.utils.return_qty.flip_return_quantities"
 _VALUATION_FLOOR_HOOK = "aqrar_ext.aqrar_ext.utils.valuation_floor.validate_valuation_floor"
 # A cash customer settles in full: no Credit mode, no partial payment.
 _CASH_CUSTOMER_HOOK = "aqrar_ext.aqrar_ext.utils.cash_customer.enforce_cash_customer"
-# Keep Item Price's last selling/buying rate current per customer/supplier —
-# only on the final transaction (Sales/Purchase Invoice), not on provisional
-# documents like Quotation or Purchase Order.
-_LAST_SELLING_PRICE_HOOK = "aqrar_ext.aqrar_ext.utils.last_price.update_last_selling_price"
-_LAST_PURCHASE_PRICE_HOOK = "aqrar_ext.aqrar_ext.utils.last_price.update_last_purchase_price"
 # Standard Selling Price column on Purchase Invoice: written to Item Price on submit.
 _STANDARD_SELLING_HOOK = "aqrar_ext.aqrar_ext.utils.selling_price.update_standard_selling_prices"
 
@@ -140,7 +135,7 @@ doc_events = {
 	"Purchase Invoice": {
 		"before_validate": [_AUTO_GRN_NO_UPDATE_STOCK_HOOK, _RETURN_QTY_HOOK, _RETURN_UOM_HOOK],
 		"validate": _COST_CENTER_HOOK,
-		"on_submit": [_LAST_PURCHASE_PRICE_HOOK, _STANDARD_SELLING_HOOK, _AUTO_GRN_CREATE_HOOK],
+		"on_submit": [_STANDARD_SELLING_HOOK, _AUTO_GRN_CREATE_HOOK],
 		# on_cancel: Frappe checks the invoice's back links only after on_cancel,
 		# by which time the auto receipt is cancelled too.
 		"on_cancel": _AUTO_GRN_CANCEL_HOOK,
@@ -196,7 +191,6 @@ doc_events = {
 		],
 		"before_save": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_save",
 		"before_print": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_print",
-		"on_submit": _LAST_SELLING_PRICE_HOOK,
 	},
 	"POS Invoice": {"before_validate": [_RETURN_QTY_HOOK, _RETURN_UOM_HOOK]},
 	"Material Request": {

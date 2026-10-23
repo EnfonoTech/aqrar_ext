@@ -66,8 +66,8 @@ def get_item_price_matrix(item_group=None, price_lists=None, cost_center=None, i
 			"item_code": ("in", item_codes),
 			"price_list": ("in", price_lists),
 			"selling": 1,
-			# General prices only. Customer-specific rows (last-price tracking,
-			# utils/last_price.py) are a different price; showing one here let
+			# General prices only. Customer-specific rows (old last-price tracking,
+			# rows) are a different price; showing one here let
 			# an edit silently change that customer's price instead.
 			"customer": ("is", "not set"),
 			"supplier": ("is", "not set"),
