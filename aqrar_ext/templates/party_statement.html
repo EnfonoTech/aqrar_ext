@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>{{ _("Party Statement") }} - {{ party.name | e }}</title>
+<style>
+	@page { size: A4; margin: 12mm 10mm; }
+	* { box-sizing: border-box; }
+	body { font-family: Arial, sans-serif; font-size: 9pt; color: #111827; margin: 0; }
+	/* Layout uses tables, not flexbox: the PDF engine (wkhtmltopdf) cannot lay out flex. */
+	table.hdr { width: 100%; border-bottom: 2px solid #111827; margin-bottom: 0; }
+	table.hdr td { padding: 0 0 6px; vertical-align: bottom; border: 0; }
+	.hdr .en, .hdr .ar { font-size: 16pt; font-weight: bold; }
+	.hdr .ar { direction: rtl; text-align: right; }
+	.hdr .period { text-align: center; font-size: 9pt; color: #374151; }
+	.lbl { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .6px; color: #6b7280; }
+	table.parties { width: 100%; margin: 10px 0; border: 1px solid #d1d5db; }
+	table.parties > tbody > tr > td { width: 50%; padding: 6px 10px; vertical-align: top; border: 0; }
+	table.parties > tbody > tr > td + td { border-left: 1px solid #d1d5db; }
+	table.inner { width: 100%; }
+	table.inner td { padding: 0; border: 0; vertical-align: top; }
+	table.inner td.a, .a { direction: rtl; text-align: right; }
+	.nm td { font-size: 10pt; font-weight: bold; padding: 2px 0 3px; }
+	.adr td { font-size: 8pt; color: #4b5563; line-height: 1.45; }
+	.ids { margin-top: 4px; font-size: 8.5pt; }
+	.ids span { margin-right: 18px; }
+	.ids b { font-weight: 600; }
+	table.summary { width: 100%; border: 1px solid #d1d5db; margin: 0 0 12px; }
+	table.summary td { width: 25%; padding: 6px 10px; border: 0; border-right: 1px solid #d1d5db; }
+	table.summary td:last-child { border-right: 0; background: #f3f4f6; }
+	.summary .k { font-size: 7.5pt; color: #6b7280; text-transform: uppercase; letter-spacing: .4px; }
+	.summary .k small { display: block; direction: rtl; text-transform: none; letter-spacing: 0; }
+	.summary .v { font-size: 11pt; font-weight: bold; margin-top: 3px; white-space: nowrap; }
+	table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+	thead { display: table-header-group; }
+	thead th { background: #f3f4f6; color: #111827; font-weight: bold; padding: 5px 6px; border-top: 1px solid #111827; border-bottom: 1px solid #111827; text-align: left; font-size: 8pt; }
+	thead th .ar { display: block; font-weight: normal; color: #6b7280; direction: rtl; font-size: 7.5pt; }
+	tbody td { padding: 4px 6px; border-bottom: 1px solid #e5e7eb; vertical-align: top; line-height: 1.3; }
+	tbody tr { page-break-inside: avoid; }
+	.r { text-align: right !important; white-space: nowrap; }
+	.ref b { font-weight: 600; }
+	.ref span { display: block; font-size: 7.5pt; color: #6b7280; }
+	.rem { font-size: 8pt; color: #374151; }
+	.muted { color: #9ca3af; }
+	tr.open td, tr.close td { background: #f9fafb; font-weight: bold; border-bottom: 1px solid #111827; }
+	tr.close td { border-top: 1px solid #111827; }
+	.cur { font-size: 7.5pt; color: #6b7280; margin: -6px 0 8px; text-align: right; }
+	.note { margin-top: 14px; padding-top: 6px; border-top: 1px solid #e5e7eb; font-size: 7.5pt; color: #6b7280; text-align: center; }
+</style>
+</head>
+<body>
+
+{% macro party_box(title_en, title_ar, p) %}
+	<div class="lbl">{{ title_en | e }} &nbsp;/&nbsp; {{ title_ar | e }}</div>
+	<table class="inner nm"><tr><td>{{ p.name | e }}</td><td class="a">{{ p.name_ar | e }}</td></tr></table>
+	<table class="inner adr"><tr><td>{{ (p.address_en or p.fallback_address) | e }}</td><td class="a">{{ p.address_ar | e }}</td></tr></table>
+	<div class="ids">
+		<span><b>VAT / الرقم الضريبي:</b> {{ p.vat | e }}</span>
+		{% if p.cr %}<span><b>CRN / السجل التجاري:</b> {{ p.cr | e }}</span>{% endif %}
+	</div>
+{% endmacro %}
+
+<table class="hdr"><tr>
+	<td class="en">{{ _("Party Statement") }}</td>
+	<td class="period"><strong>{{ _("Period") }}:</strong> {{ period | e }}</td>
+	<td class="ar">كشف حساب</td>
+</tr></table>
+
+<table class="parties"><tr>
+	<td>{{ party_box("Company", "الشركة", company) }}</td>
+	<td>{{ party_box(party_label_en, party_label_ar, party) }}</td>
+</tr></table>
+
+{% if currency %}<div class="cur">{{ _("Amounts in") }} {{ currency | e }}</div>{% endif %}
+
+<table class="summary"><tr>
+	<td><div class="k">Opening Balance<small>الرصيد الافتتاحي</small></div><div class="v">{{ money(ledger.opening_balance) }} {{ dr_cr(ledger.opening_balance) }}</div></td>
+	<td><div class="k">Total Debit<small>إجمالي المدين</small></div><div class="v">{{ money(ledger.total_debit) }}</div></td>
+	<td><div class="k">Total Credit<small>إجمالي الدائن</small></div><div class="v">{{ money(ledger.total_credit) }}</div></td>
+	<td><div class="k">Closing Balance<small>الرصيد الختامي</small></div><div class="v">{{ money(ledger.closing_balance) }} {{ dr_cr(ledger.closing_balance) }}</div></td>
+</tr></table>
+
+<table>
+	<thead>
+		<tr>
+			<th style="width:78px;">Date<span class="ar">التاريخ</span></th>
+			<th style="width:120px;">Reference<span class="ar">المرجع</span></th>
+			<th>Remarks<span class="ar">البيان</span></th>
+			<th class="r" style="width:78px;">Debit<span class="ar">مدين</span></th>
+			<th class="r" style="width:78px;">Credit<span class="ar">دائن</span></th>
+			<th class="r" style="width:92px;">Balance<span class="ar">الرصيد</span></th>
+		</tr>
+	</thead>
+	<tbody>
+		{% if ledger.opening %}
+		<tr class="open">
+			<td></td><td colspan="2">Opening Balance</td>
+			<td class="r">{% if ledger.opening.debit %}{{ money(ledger.opening.debit) }}{% endif %}</td>
+			<td class="r">{% if ledger.opening.credit %}{{ money(ledger.opening.credit) }}{% endif %}</td>
+			<td class="r">{{ money(ledger.opening_balance) }} {{ dr_cr(ledger.opening_balance) }}</td>
+		</tr>
+		{% endif %}
+		{% for t in ledger.entries %}
+		{% set ref_label = (t.voucher_subtype or t.voucher_type or "") %}
+		{% set against = plain(t.against_voucher) %}
+		{% set remark = plain(t.remarks) %}
+		<tr>
+			<td>{{ date(t.posting_date) }}</td>
+			<td class="ref"><b>{{ ref_label | e }}</b><span>{{ t.voucher_no | e }}</span></td>
+			<td class="rem">{{ remark | e }}{% if against and against != t.voucher_no %}{% if remark %}<br>{% endif %}<span class="muted">Against: {{ against | e }}</span>{% endif %}</td>
+			<td class="r">{% if t.debit %}{{ money(t.debit) }}{% else %}<span class="muted">-</span>{% endif %}</td>
+			<td class="r">{% if t.credit %}{{ money(t.credit) }}{% else %}<span class="muted">-</span>{% endif %}</td>
+			<td class="r"><strong>{{ money(t.balance) }}</strong> {{ dr_cr(t.balance) }}</td>
+		</tr>
+		{% endfor %}
+		<tr class="close">
+			<td></td><td colspan="2">Closing Balance</td><td></td><td></td>
+			<td class="r">{{ money(ledger.closing_balance) }} {{ dr_cr(ledger.closing_balance) }}</td>
+		</tr>
+	</tbody>
+</table>
+
+<div class="note">{{ _("Generated on") }} {{ generated_on }} &middot; {{ company_name | e }}</div>
+</body>
+</html>

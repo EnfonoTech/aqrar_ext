@@ -26,31 +26,22 @@ function check_valuation_floor(frm, cdt, cdn) {
     // typed one; warning then fires on every add. Save still blocks it server-side.
     if (!flt(row.rate)) return;
 
-    frappe.call({
-        method: "aqrar_ext.aqrar_ext.utils.valuation_floor.get_valuation_floor",
-        args: {
-            item_code: row.item_code,
-            warehouse: row.warehouse || frm.doc.set_warehouse || "",
-            conversion_factor: row.conversion_factor || 1,
-            qty: row.qty || 0,
-            company: frm.doc.company || "",
-        },
-        callback(r) {
-            const floor_company = flt(r.message && r.message.floor);
-            if (!floor_company) return;
+    // Same question the Valuation Rate column asks, so it comes from the shared
+    // cache instead of a second request.
+    aqrar_ext.fd.get_floor(frm, row).then(function (floor_company) {
+        if (!floor_company) return;
 
-            const floor = floor_company / (flt(frm.doc.conversion_rate) || 1);
-            if (flt(row.rate) >= floor) return;
+        const floor = floor_company / (flt(frm.doc.conversion_rate) || 1);
+        if (flt(row.rate) >= floor) return;
 
-            frappe.msgprint({
-                title: __("Price Below Cost"),
-                indicator: "red",
-                message: __("Minimum rate for {0} is {1}", [
-                    row.item_code,
-                    format_currency(floor, frm.doc.currency),
-                ]),
-            });
-        },
+        frappe.msgprint({
+            title: __("Price Below Cost"),
+            indicator: "red",
+            message: __("Minimum rate for {0} is {1}", [
+                row.item_code,
+                format_currency(floor, frm.doc.currency),
+            ]),
+        });
     });
 }
 

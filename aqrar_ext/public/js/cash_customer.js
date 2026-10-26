@@ -59,12 +59,15 @@ function sync_payment_modes(frm) {
         return;
     }
 
-    frappe.call({
-        method: "aqrar_ext.aqrar_ext.utils.cash_customer.get_is_cash_customer",
-        args: { customer: frm.doc.customer },
-        callback(r) {
-            apply_payment_mode_options(frm, !!(r && r.message && r.message.is_cash_customer));
-        },
+    // onload, refresh and customer all land here; a customer's cash status does
+    // not change while the form is open, so ask once and reuse the answer.
+    aqrar_ext.fd.cached_call("cash:" + frm.doc.customer, 60000, function () {
+        return frappe.call({
+            method: "aqrar_ext.aqrar_ext.utils.cash_customer.get_is_cash_customer",
+            args: { customer: frm.doc.customer },
+        });
+    }).then(function (r) {
+        apply_payment_mode_options(frm, !!(r && r.message && r.message.is_cash_customer));
     });
 }
 
