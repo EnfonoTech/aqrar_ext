@@ -75,8 +75,16 @@ for (const parent_doctype of ["Quotation", "Sales Order", "Sales Invoice"]) {
     frappe.ui.form.on(parent_doctype, { refresh: toggle_below_cost_override });
 }
 
+// ERPNext sets the rate several times while a row is filled in; one check per row
+// once it settles is enough.
+const floor_timers = {};
+function check_valuation_floor_debounced(frm, cdt, cdn) {
+    clearTimeout(floor_timers[cdn]);
+    floor_timers[cdn] = setTimeout(() => check_valuation_floor(frm, cdt, cdn), 500);
+}
+
 for (const child_doctype of SELLING_ITEM_DOCTYPES) {
-    frappe.ui.form.on(child_doctype, { rate: check_valuation_floor });
+    frappe.ui.form.on(child_doctype, { rate: check_valuation_floor_debounced });
 }
 
 })();
