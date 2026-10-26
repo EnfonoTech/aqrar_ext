@@ -9,11 +9,12 @@ from aqrar_ext.api.price_history import (
 	get_last_sold_price,
 	get_last_sold_prices,
 )
-from aqrar_ext.api.uom import get_item_uoms
+from aqrar_ext.api.uom import get_item_uoms, get_items_uoms
 
 
 __all__ = [
 	"get_last_sold_price",
 	"get_last_sold_prices",
 	"get_item_uoms",
+	"get_items_uoms",
 ]

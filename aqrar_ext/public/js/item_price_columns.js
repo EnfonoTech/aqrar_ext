@@ -51,7 +51,13 @@
     function fill_empty(frm) {
         lock_price_fields(frm);
         if (frm.doc.docstatus !== 0 || frm.doc.is_return) return;
-        fetch_rates(frm, (frm.doc.items || []).filter((row) => !flt(row[FIELD]) && !flt(row[WHOLESALE_FIELD])));
+        const empty = (frm.doc.items || []).filter((row) => !flt(row[FIELD]) && !flt(row[WHOLESALE_FIELD]));
+        // A row whose item has no price stays empty, so without this every refresh
+        // would ask again for the same rows.
+        const key = empty.map((row) => row.item_code + "::" + row.uom).join("|");
+        if (!key || frm.__price_columns_key === key) return;
+        frm.__price_columns_key = key;
+        fetch_rates(frm, empty);
     }
 
     // A new item or UOM is a different price: load the one that belongs to it.

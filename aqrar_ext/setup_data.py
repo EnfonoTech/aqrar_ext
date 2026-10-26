@@ -721,6 +721,31 @@ for _dt in (
 		}
 	)
 
+# Party balance on the header of sales and purchase documents, filled from the ledger
+# when the party is selected (public/js/party_balance.js, api/party_balance.py).
+for _dt, _label, _after in (
+	("Sales Invoice", "Customer Balance", "customer_name"),
+	("Delivery Note", "Customer Balance", "customer_name"),
+	("Sales Order", "Customer Balance", "customer_name"),
+	("Quotation", "Customer Balance", "customer_name"),
+	("Purchase Invoice", "Supplier Balance", "supplier_name"),
+	("Purchase Order", "Supplier Balance", "supplier_name"),
+	("Purchase Receipt", "Supplier Balance", "supplier_name"),
+):
+	CUSTOM_FIELDS.setdefault(_dt, []).append(
+		{
+			"fieldname": "custom_party_balance",
+			"label": _label,
+			"fieldtype": "Currency",
+			"insert_after": _after,
+			"read_only": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+			"depends_on": "eval:doc.quotation_to=='Customer'" if _dt == "Quotation" else "",
+			"description": "Ledger balance as of the document date. Positive: the party owes you (debit). Negative: you owe the party (credit).",
+		}
+	)
+
 CUSTOM_FIELDS.setdefault("Selling Settings", []).append(
 	{
 		"fieldname": "custom_wholesale_price_list",

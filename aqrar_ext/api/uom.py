@@ -31,3 +31,37 @@ def get_item_uoms(item_code=None):
 		if uom not in uoms:
 			uoms.append(uom)
 	return uoms
+
+
+@frappe.whitelist()
+def get_items_uoms(item_codes=None):
+	"""Allowed UOMs for many items in one request: {item_code: {"base_uom", "allowed"}}.
+
+	`get_item_uoms` answers for one item, so a client looping over a document's rows
+	makes one round trip per row (and again on every refresh). This answers for the
+	whole document in two queries.
+	"""
+	item_codes = frappe.parse_json(item_codes) if isinstance(item_codes, str) else item_codes
+	item_codes = list({c for c in (item_codes or []) if c})
+	if not item_codes:
+		return {}
+
+	frappe.has_permission("Item", "read", throw=True)
+
+	result = {}
+	for item_code, stock_uom in frappe.get_all(
+		"Item", filters={"name": ("in", item_codes)}, fields=["name", "stock_uom"], as_list=True
+	):
+		result[item_code] = {"base_uom": stock_uom, "allowed": [stock_uom]}
+
+	for parent, uom in frappe.get_all(
+		"UOM Conversion Detail",
+		filters={"parent": ("in", list(result)), "parenttype": "Item"},
+		fields=["parent", "uom"],
+		order_by="idx",
+		as_list=True,
+	):
+		if uom not in result[parent]["allowed"]:
+			result[parent]["allowed"].append(uom)
+
+	return result
