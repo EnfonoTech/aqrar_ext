@@ -273,7 +273,9 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         // The list on screen stays until the new one is complete; dim it so the
         // wait is visible without blanking the table.
         var $container = this.dialog.fields_dict.results_area.$wrapper.find(".search-results-container");
-        $container.css("opacity", 0.55);
+        // Only a slow search dims the list; a quick one just swaps, with no flash.
+        clearTimeout(this._dim_timer);
+        this._dim_timer = setTimeout(function () { $container.css("opacity", 0.55); }, 250);
 
         frappe.link_search("Item", args, function (results) {
             if (seq !== me._seq) return;
@@ -286,6 +288,7 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         var parent = this.dialog.fields_dict.results_area.$wrapper.find(".search-results-container");
 
         if (!results.length && !append) {
+            clearTimeout(this._dim_timer);
             parent.empty().css("opacity", 1);
             parent.html(
                 '<p class="text-muted" style="padding: 15px;">' + __("No items found") + "</p>"
@@ -361,7 +364,7 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                         : '') +
                     '<span style="width:' + w.qty + '%;">' +
                         '<input type="number" class="item-qty form-control input-xs" data-item="' + code_attr + '"' +
-                            ' value="1" min="0" step="any"' +
+                            ' min="0" step="any"' +
                             ' style="width:80px; height:24px;">' +
                     '</span>' +
                     '<span style="width:' + w.action + '%;">' +
@@ -392,7 +395,14 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             row.find(".item-add-btn").on("click", function () {
                 var code = row.data("aqrar-item");
                 var qty_inp = row.find(".item-qty");
-                var qty = parseFloat(qty_inp.val()) || 1;
+                var qty = parseFloat(qty_inp.val()) || 0;
+                // The quantity box starts empty on purpose: the user types what they
+                // need, so nothing is added with a quantity they did not choose.
+                if (qty <= 0) {
+                    frappe.show_alert({ message: __("Enter a quantity first"), indicator: "orange" }, 3);
+                    qty_inp.trigger("focus");
+                    return;
+                }
                 var max = parseFloat(qty_inp.attr("max"));
                 if (me.enforce_stock && !isNaN(max) && qty > max) {
                     qty = max;
@@ -440,6 +450,7 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                 parent.append($header);
                 list = $stage.appendTo(parent);
             }
+            clearTimeout(me._dim_timer);
             parent.css("opacity", 1);
 
             me.apply_stock_filter();

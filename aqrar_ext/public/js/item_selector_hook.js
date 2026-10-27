@@ -57,19 +57,23 @@ doctypes_with_items.forEach(function (doctype) {
                 });
             }
 
+            // Clicking an Item cell opens the item list right over the buttons under
+            // the table, so a click meant for "Add Multiple" landed on the first item
+            // of the list. The button lives ABOVE the table instead, where the list
+            // never reaches, and the one under the table is hidden.
             var btn = $(grid.wrapper).find(".grid-add-multiple-rows");
-            btn.removeClass("hidden");
             btn.off("click.aqrar").on("click.aqrar", function (e) {
                 e.stopImmediatePropagation();
                 e.preventDefault();
                 open_selector();
             });
 
-            // Clicking an Item cell opens the item list right over the buttons under
-            // the table, so a click meant for "Add Multiple" landed on the first item
-            // of the list. The same button above the table is never covered.
             if (grid.add_custom_button) {
+                btn[0] && btn[0].style.setProperty("display", "none", "important");
                 grid.add_custom_button(ADD_MULTIPLE_LABEL, open_selector, "top").toggle(!frm.doc.docstatus);
+            } else {
+                // No top button available: keep the original one working.
+                btn.removeClass("hidden");
             }
         },
     });
