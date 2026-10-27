@@ -165,15 +165,35 @@ function add_ledger_buttons() {
     return true;
 }
 
-function on_route_change() {
+function on_ledger() {
     const route = frappe.get_route();
-    if (route[0] !== "query-report" || route[1] !== "General Ledger") return;
+    return route[0] === "query-report" && route[1] === "General Ledger";
+}
 
-    // The report is built a moment after the route changes.
-    let tries = 0;
-    const timer = setInterval(function () {
-        if (add_ledger_buttons() || ++tries > 40) clearInterval(timer);
-    }, 300);
+// The report clears its own toolbar when it renders or refreshes, which on a large
+// ledger happens AFTER the buttons were first added. So adding them once is not
+// enough: while the General Ledger is open, put them back whenever they are missing.
+let ledger_watcher = null;
+
+function on_route_change() {
+    if (!on_ledger()) {
+        if (ledger_watcher) {
+            clearInterval(ledger_watcher);
+            ledger_watcher = null;
+        }
+        return;
+    }
+    if (ledger_watcher) return;
+
+    add_ledger_buttons();
+    ledger_watcher = setInterval(function () {
+        if (!on_ledger()) {
+            clearInterval(ledger_watcher);
+            ledger_watcher = null;
+            return;
+        }
+        add_ledger_buttons();
+    }, 500);
 }
 
 $(document).on("page-change", on_route_change);
