@@ -460,6 +460,8 @@ VALUATION_GRID_WIDTHS = {
 	"Purchase Invoice Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "rate": 1, "custom_valuation_rate": 1, "custom_standard_selling_rate": 1, "custom_wholesale_selling_rate": 1, "custom_view_stock": 1, "amount": 1},
 	"Purchase Order Item": {"item_code": 2, "schedule_date": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
 	"Purchase Receipt Item": {"item_code": 2, "qty": 1, "rejected_qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
+	# Not an item grid: room for the Allocate tick (CR-030).
+	"Payment Entry Reference": {"reference_doctype": 1, "reference_name": 2, "total_amount": 2, "outstanding_amount": 2, "allocated_amount": 2, "custom_allocate": 1},
 }
 VALUATION_GRID_HIDDEN = {
 	"Sales Order Item": ("delivery_date",),
@@ -745,6 +747,22 @@ for _dt, _label, _after in (
 			"description": "Ledger balance as of the document date. Positive: the party owes you (debit). Negative: you owe the party (credit).",
 		}
 	)
+
+# Payment Entry references: tick a row to allocate it (CR-030, ticket #5,
+# public/js/payment_entry.js). Ticking fills the allocated amount; core drops
+# unticked rows (allocated 0) on save.
+CUSTOM_FIELDS.setdefault("Payment Entry Reference", []).append(
+	{
+		"fieldname": "custom_allocate",
+		"label": "Allocate",
+		"fieldtype": "Check",
+		"insert_after": "allocated_amount",
+		"in_list_view": 1,
+		"columns": 1,
+		"no_copy": 1,
+		"print_hide": 1,
+	}
+)
 
 CUSTOM_FIELDS.setdefault("Selling Settings", []).append(
 	{
