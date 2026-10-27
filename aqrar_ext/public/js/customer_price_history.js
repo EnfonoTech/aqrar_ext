@@ -45,8 +45,17 @@ for (const [doctype, config] of Object.entries(DOCTYPE_CONFIG)) {
 
 // ── Last Price column ─────────────────────────────────────────────────────
 
+function last_price_signature(frm, config) {
+    const item_codes = [...new Set((frm.doc.items || []).filter(row => row.item_code).map(row => row.item_code))];
+    return (frm.doc[config.customer_field] || "") + "|" + item_codes.sort().join(",");
+}
+
 // One request per document, not one per row: a 40-line invoice used to fire
 // 40 separate calls on every refresh.
+//
+// And not one per refresh either: the answer only changes with the customer or the
+// set of items, so an unchanged document asks nothing. The value is a display
+// column, written quietly (no change event, one cell repainted).
 function update_all_last_prices(frm, config) {
     if (frm.doc.docstatus !== 0) return;
 
@@ -54,6 +63,9 @@ function update_all_last_prices(frm, config) {
     if (!rows.length) return;
 
     const item_codes = [...new Set(rows.map(row => row.item_code))];
+    const signature = last_price_signature(frm, config);
+    if (frm.__aqrar_last_price_sig === signature) return;
+    frm.__aqrar_last_price_sig = signature;
 
     frappe.call({
         method: "aqrar_ext.api.get_last_sold_prices",
@@ -63,11 +75,15 @@ function update_all_last_prices(frm, config) {
             source: config.source,
         },
         callback(r) {
-            if (r.exc || !r.message) return;
+            if (r.exc || !r.message) {
+                frm.__aqrar_last_price_sig = null;
+                return;
+            }
             if (frm.doc.docstatus !== 0) return;
             rows.forEach(row => {
-                frappe.model.set_value(
-                    row.doctype, row.name, "custom_last_price", last_price_value(row, r.message[row.item_code])
+                aqrar_ext.fd.set_quiet(
+                    frm, row.doctype, row.name, "custom_last_price",
+                    last_price_value(row, r.message[row.item_code])
                 );
             });
         },
@@ -86,9 +102,11 @@ function update_row_last_price(frm, row, config) {
         },
         callback(r) {
             if (r.exc || !r.message) return;
-            frappe.model.set_value(
-                row.doctype, row.name, "custom_last_price", last_price_value(row, r.message.last_price)
+            aqrar_ext.fd.set_quiet(
+                frm, row.doctype, row.name, "custom_last_price", last_price_value(row, r.message.last_price)
             );
+            // This row's item is now covered: the next refresh need not ask again.
+            frm.__aqrar_last_price_sig = last_price_signature(frm, config);
         },
     });
 }

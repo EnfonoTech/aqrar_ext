@@ -39,6 +39,7 @@ def _aqrar_asset_version():
 _ASSET_V = _aqrar_asset_version()
 
 app_include_js = [
+	f"/assets/aqrar_ext/js/aqrar_fast_row.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/item_selector.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/item_selector_hook.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_pos_total_popup.js?v={_ASSET_V}",
@@ -47,6 +48,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/return_qty_positive.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/item_price_columns.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/item_location_stock.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/party_balance.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/purchase_invoice_backdate_stock.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_branch_price_list.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_row_price_list.js?v={_ASSET_V}",
@@ -63,6 +65,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/item_valuation_rate.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/cash_customer.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/customer_statement.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/party_statement_print.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/material_request_custom.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/stock_entry_warehouse_qty.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/stock_entry_backdate_override.js?v={_ASSET_V}",

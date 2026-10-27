@@ -16,6 +16,9 @@ const PARENTS = {
     "Stock Entry": "Stock Entry Detail",
 };
 
+// Display column only: written quietly (no change event, one cell repainted) and
+// asked for through the shared cache, so the below-cost warning's identical
+// question costs no second request.
 function set_row_valuation_rate(frm, row) {
     if (!row || !row.item_code) return;
     const item_code = row.item_code;
@@ -23,26 +26,17 @@ function set_row_valuation_rate(frm, row) {
     // Stock Entry receipt row (no source warehouse): stock comes in at the rate
     // typed on the row, not at the warehouse's existing cost.
     if (row.doctype === "Stock Entry Detail" && !row.s_warehouse) {
-        frappe.model.set_value(row.doctype, row.name, "custom_valuation_rate",
+        aqrar_ext.fd.set_quiet(frm, row.doctype, row.name, "custom_valuation_rate",
             flt(row.basic_rate) * (flt(row.conversion_factor) || 1));
+        row.__aqrar_val_done = true;
         return;
     }
 
-    frappe.call({
-        method: "aqrar_ext.aqrar_ext.utils.valuation_floor.get_valuation_floor",
-        args: {
-            item_code: item_code,
-            warehouse: row.warehouse || row.s_warehouse || row.t_warehouse || frm.doc.set_warehouse || "",
-            conversion_factor: row.conversion_factor || 1,
-            qty: row.qty || 0,
-            company: frm.doc.company || "",
-        },
-        callback(r) {
-            if (r.exc || !r.message) return;
-            const current = locals[row.doctype] && locals[row.doctype][row.name];
-            if (!current || current.item_code !== item_code) return;
-            frappe.model.set_value(row.doctype, row.name, "custom_valuation_rate", flt(r.message.floor));
-        },
+    aqrar_ext.fd.get_floor(frm, row).then(function (floor) {
+        const current = locals[row.doctype] && locals[row.doctype][row.name];
+        if (!current || current.item_code !== item_code) return;
+        current.__aqrar_val_done = true;
+        aqrar_ext.fd.set_quiet(frm, row.doctype, row.name, "custom_valuation_rate", flt(floor));
     });
 }
 
@@ -50,8 +44,12 @@ for (const [parent, child] of Object.entries(PARENTS)) {
     frappe.ui.form.on(parent, {
         refresh(frm) {
             if (frm.doc.docstatus !== 0) return;
+            // Only rows never looked up. A row whose cost is genuinely 0 (no stock
+            // yet) used to be asked about again on every refresh.
             (frm.doc.items || []).forEach(row => {
-                if (row.item_code && !flt(row.custom_valuation_rate)) set_row_valuation_rate(frm, row);
+                if (row.item_code && !flt(row.custom_valuation_rate) && !row.__aqrar_val_done) {
+                    set_row_valuation_rate(frm, row);
+                }
             });
         },
     });
@@ -65,7 +63,10 @@ for (const [parent, child] of Object.entries(PARENTS)) {
         clearTimeout(timers[cdn]);
         timers[cdn] = setTimeout(() => {
             const row = locals[cdt] && locals[cdt][cdn];
-            if (row) set_row_valuation_rate(frm, row);
+            if (row) {
+                row.__aqrar_val_done = false;
+                set_row_valuation_rate(frm, row);
+            }
         }, 300);
     };
     frappe.ui.form.on(child, {

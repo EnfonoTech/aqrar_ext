@@ -7,3 +7,4 @@
 aqrar_ext.patches.fix_stock_entry_naming_series
 aqrar_ext.patches.rename_branch_configuration_to_branch
 aqrar_ext.patches.backfill_branch_config_mop_type
+aqrar_ext.patches.remove_default_cash_customer

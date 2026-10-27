@@ -4,6 +4,12 @@
 // (or left blank, in which case the document's own Price List applies), the row's
 // rate is looked up from that price list — same resolution ERPNext itself uses
 // (party pricing, qty breaks, uom fallback, currency conversion).
+//
+// A row only needs its own lookup when it is priced from a DIFFERENT list than the
+// document. When the row's list is the document's list, ERPNext's own rate is
+// already right and nothing here runs — that is the usual front-desk case, and it
+// used to cost two extra requests and a second rewrite of the same price a second
+// after the row appeared.
 
 var AQRAR_ROW_PL_DOCTYPES = {
 	"Sales Invoice": "Sales Invoice Item",
@@ -22,6 +28,11 @@ function aqrar_row_pl_customer(frm) {
 	if (frm.doc.customer) return frm.doc.customer;
 	// Quotation can be addressed to a Lead / Prospect as well
 	return frm.doc.quotation_to === "Customer" ? frm.doc.party_name : null;
+}
+
+// True when the row is priced from a list other than the document's.
+function aqrar_row_overrides_doc_list(frm, row) {
+	return !!(row && row.custom_price_list && row.custom_price_list !== aqrar_doc_price_list(frm));
 }
 
 function aqrar_apply_row_price_list(frm, cdt, cdn) {
@@ -47,41 +58,64 @@ function aqrar_apply_row_price_list(frm, cdt, cdn) {
 		},
 		callback: function (r) {
 			if (!r.message || !flt(r.message.rate)) return;
+			// The user may have changed the item while this was in flight.
+			const current = locals[cdt] && locals[cdt][cdn];
+			if (!current || current.item_code !== row.item_code) return;
+			// Already what the row is priced at: writing it again only redraws the
+			// table and re-runs every rate handler for nothing.
+			if (flt(current.price_list_rate) === flt(r.message.rate) && flt(current.rate) === flt(r.message.rate)) return;
 			frappe.model.set_value(cdt, cdn, "price_list_rate", r.message.rate);
 			frappe.model.set_value(cdt, cdn, "rate", r.message.rate);
 		},
 	});
 }
 
-// ERPNext's own price-list-change handler re-rates every row against the
-// document's price list a moment later — reapply row-level overrides afterwards
-// so they aren't clobbered by that.
-function aqrar_reapply_row_price_lists(frm) {
+// The document's Price List changed. Rows that were following the old list follow
+// the new one; rows with their own list keep it. ERPNext re-rates every row from the
+// document's list, so once that has finished the rows with their own list are priced
+// again — waiting for the requests to drain, not for a fixed number of milliseconds.
+function aqrar_on_doc_price_list_change(frm) {
+	const now = aqrar_doc_price_list(frm);
+	const prev = frm.__aqrar_prev_price_list;
+	frm.__aqrar_prev_price_list = now;
+
+	(frm.doc.items || []).forEach(function (row) {
+		if (row.item_code && (!row.custom_price_list || row.custom_price_list === prev)) {
+			aqrar_ext.fd.set_quiet(frm, row.doctype, row.name, "custom_price_list", now);
+		}
+	});
+
 	setTimeout(function () {
-		(frm.doc.items || []).forEach(function (row) {
-			if (row.item_code && row.custom_price_list) {
-				aqrar_apply_row_price_list(frm, row.doctype, row.name);
-			}
+		frappe.after_ajax(function () {
+			(frm.doc.items || []).forEach(function (row) {
+				if (row.item_code && aqrar_row_overrides_doc_list(frm, row)) {
+					aqrar_apply_row_price_list(frm, row.doctype, row.name);
+				}
+			});
 		});
-	}, 700);
+	}, 0);
 }
 
 Object.keys(AQRAR_ROW_PL_DOCTYPES).forEach(function (parent_dt) {
 	frappe.ui.form.on(AQRAR_ROW_PL_DOCTYPES[parent_dt], {
+		// The user picked a list for this row on purpose: always price it from that.
 		custom_price_list: function (frm, cdt, cdn) { aqrar_apply_row_price_list(frm, cdt, cdn); },
 		item_code: function (frm, cdt, cdn) {
-			// ERPNext's own item_code handler re-rates the row from the document's
-			// price list a moment later — reapply the row's own price list (if any)
-			// afterwards so it isn't clobbered by that.
+			// Our handler runs before ERPNext's own item_code handler, which re-rates
+			// the row from the document's list. Only a row with its OWN list needs
+			// pricing again, and only after ERPNext has finished.
 			const row = locals[cdt][cdn];
-			if (row && row.custom_price_list) {
-				setTimeout(function () { aqrar_apply_row_price_list(frm, cdt, cdn); }, 800);
-			}
+			if (!row || !row.item_code || !aqrar_row_overrides_doc_list(frm, row)) return;
+			aqrar_ext.fd.when_item_ready(cdt, cdn, row.item_code, function () {
+				aqrar_apply_row_price_list(frm, cdt, cdn);
+			});
 		},
 		items_add: function (frm, cdt, cdn) {
+			// Show the document's list on the new row. Written quietly: it is the
+			// default, not a choice, and must not trigger the lookup above.
 			const row = locals[cdt][cdn];
 			if (row && !row.custom_price_list && aqrar_doc_price_list(frm)) {
-				frappe.model.set_value(cdt, cdn, "custom_price_list", aqrar_doc_price_list(frm));
+				aqrar_ext.fd.set_quiet(frm, cdt, cdn, "custom_price_list", aqrar_doc_price_list(frm));
 			}
 		},
 	});
@@ -100,8 +134,11 @@ Object.keys(AQRAR_ROW_PL_DOCTYPES).forEach(function (parent_dt) {
 				};
 			});
 		},
-		selling_price_list: aqrar_reapply_row_price_lists,
-		buying_price_list: aqrar_reapply_row_price_lists,
+		onload: function (frm) {
+			frm.__aqrar_prev_price_list = aqrar_doc_price_list(frm);
+		},
+		selling_price_list: aqrar_on_doc_price_list_change,
+		buying_price_list: aqrar_on_doc_price_list_change,
 	});
 });
 

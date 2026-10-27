@@ -71,7 +71,10 @@ def fifo_cost(item_code, warehouse, qty=0):
 		"Stock Ledger Entry",
 		{"item_code": item_code, "warehouse": warehouse, "is_cancelled": 0},
 		"stock_queue",
-		order_by="posting_date desc, posting_time desc, creation desc",
+		# posting_datetime, not posting_date + posting_time: it is the ledger's own index
+		# (item_code, warehouse, posting_datetime, creation), so MySQL reads one row
+		# instead of sorting every entry the item ever had in the warehouse.
+		order_by="posting_datetime desc, creation desc",
 	)
 	layers = [(flt(q), flt(r)) for q, r in (frappe.parse_json(queue) or [])] if queue else []
 	layers = [(q, r) for q, r in layers if q > 0]
