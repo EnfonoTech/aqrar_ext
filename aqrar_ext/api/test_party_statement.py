@@ -127,6 +127,35 @@ class TestPartyStatement(FrappeTestCase):
 		self.assertNotIn("<script", html)
 		self.assertTrue(out["filename"].startswith("Statement_Customer_"))
 
+	def test_company_letter_head_is_printed(self):
+		letter_head = "Statement Test Letter Head"
+		if not frappe.db.exists("Letter Head", letter_head):
+			frappe.get_doc({"doctype": "Letter Head", "letter_head_name": letter_head}).insert(
+				ignore_permissions=True
+			)
+		# Set straight in the table: an Image letter head builds its HTML from an attachment.
+		frappe.db.set_value(
+			"Letter Head",
+			letter_head,
+			{"content": "<div>LH-HEADER-MARK</div>", "footer": "<div>LH-FOOTER-MARK</div>", "disabled": 0},
+		)
+		previous = frappe.db.get_value("Company", COMPANY, "default_letter_head")
+		self.addCleanup(frappe.db.set_value, "Company", COMPANY, "default_letter_head", previous)
+
+		from_date, to_date = self.period()
+		frappe.db.set_value("Company", COMPANY, "default_letter_head", letter_head)
+		html = get_party_statement_html("Customer", CUSTOMER, COMPANY, from_date, to_date)["html"]
+		self.assertIn("LH-HEADER-MARK", html)
+		self.assertIn("LH-FOOTER-MARK", html)
+		# header above the statement title, footer below the ledger
+		self.assertLess(html.index("LH-HEADER-MARK"), html.index('class="hdr"'))
+		self.assertLess(html.index("Closing Balance</td>"), html.index("LH-FOOTER-MARK"))
+
+		# A disabled letter head is not printed.
+		frappe.db.set_value("Letter Head", letter_head, "disabled", 1)
+		html = get_party_statement_html("Customer", CUSTOMER, COMPANY, from_date, to_date)["html"]
+		self.assertNotIn("LH-HEADER-MARK", html)
+
 	def test_user_text_is_escaped(self):
 		from_date, to_date = self.period()
 		html = get_party_statement_html("Customer", CUSTOMER_ESCAPING, COMPANY, from_date, to_date)["html"]

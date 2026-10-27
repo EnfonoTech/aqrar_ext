@@ -15,12 +15,19 @@ var doctypes_with_items = [
     "Stock Entry",
 ];
 
+var ADD_MULTIPLE_LABEL = "Add Multiple Items";
+
 doctypes_with_items.forEach(function (doctype) {
     frappe.ui.form.on(doctype, {
         refresh: function (frm) {
             if (!frm.fields_dict.items || !frm.fields_dict.items.grid) return;
 
             var grid = frm.fields_dict.items.grid;
+
+            // The button above the table follows the document: gone once it is submitted.
+            var top_btn = grid.custom_buttons && grid.custom_buttons[ADD_MULTIPLE_LABEL];
+            if (top_btn) top_btn.toggle(!frm.doc.docstatus);
+
             if (grid._aqrar_multisel_hooked) return;
             grid._aqrar_multisel_hooked = true;
 
@@ -41,18 +48,29 @@ doctypes_with_items.forEach(function (doctype) {
             var qty_field = frappe.meta.get_docfield(child_doctype, "qty") ? "qty" : null;
             var uom_field = frappe.meta.get_docfield(child_doctype, "uom") ? "uom" : null;
 
-            var btn = $(grid.wrapper).find(".grid-add-multiple-rows");
-            btn.removeClass("hidden");
-            btn.off("click.aqrar").on("click.aqrar", function (e) {
-                e.stopImmediatePropagation();
-                e.preventDefault();
+            function open_selector() {
                 new frappe.ui.form.ItemMultiSelector({
                     target: grid,
                     fieldname: item_field,
                     qty_fieldname: qty_field,
                     uom_fieldname: uom_field,
                 });
+            }
+
+            var btn = $(grid.wrapper).find(".grid-add-multiple-rows");
+            btn.removeClass("hidden");
+            btn.off("click.aqrar").on("click.aqrar", function (e) {
+                e.stopImmediatePropagation();
+                e.preventDefault();
+                open_selector();
             });
+
+            // Clicking an Item cell opens the item list right over the buttons under
+            // the table, so a click meant for "Add Multiple" landed on the first item
+            // of the list. The same button above the table is never covered.
+            if (grid.add_custom_button) {
+                grid.add_custom_button(ADD_MULTIPLE_LABEL, open_selector, "top").toggle(!frm.doc.docstatus);
+            }
         },
     });
 });

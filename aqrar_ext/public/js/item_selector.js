@@ -219,10 +219,17 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
 
     search() {
         var me = this;
-        var txt = this.dialog.fields_dict.item_name_txt.get_value() || "";
+        // Only the latest search may draw: a slower, older response landing after a
+        // newer one would repaint the list with stale rows.
+        var seq = (this._seq = (this._seq || 0) + 1);
+        var item_name_txt = (this.dialog.fields_dict.item_name_txt.get_value() || "").trim();
 
+        // txt stays empty on purpose. The Item query matches txt against the code,
+        // the name, the group and the barcodes at once, so typing "013" under
+        // Item Name also returned items whose CODE has 013. Each box is applied
+        // below as a filter on its own field instead.
         var args = {
-            txt: txt,
+            txt: "",
             searchfield: "name",
             start: this.start,
             page_length: this.page_length,
@@ -242,9 +249,10 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         // set, rather than overwriting them.
         var extra_filters = {};
         var item_group = this.dialog.fields_dict.item_group.get_value();
-        var item_code_txt = this.dialog.fields_dict.item_code_txt.get_value();
+        var item_code_txt = (this.dialog.fields_dict.item_code_txt.get_value() || "").trim();
 
         if (item_group) extra_filters.item_group = item_group;
+        if (item_name_txt) extra_filters.item_name = ["like", "%" + item_name_txt + "%"];
         if (item_code_txt) extra_filters.item_code = ["like", "%" + item_code_txt + "%"];
 
         if (Object.keys(extra_filters).length) {
@@ -262,27 +270,34 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             }
         }
 
+        // The list on screen stays until the new one is complete; dim it so the
+        // wait is visible without blanking the table.
+        var $container = this.dialog.fields_dict.results_area.$wrapper.find(".search-results-container");
+        $container.css("opacity", 0.55);
+
         frappe.link_search("Item", args, function (results) {
-            me.render_results(results, args.start > 0);
+            if (seq !== me._seq) return;
+            me.render_results(results, args.start > 0, seq);
         });
     }
 
-    render_results(results, append) {
+    render_results(results, append, seq) {
+        var me = this;
         var parent = this.dialog.fields_dict.results_area.$wrapper.find(".search-results-container");
 
-        if (!append) {
-            parent.empty();
-        }
-
         if (!results.length && !append) {
+            parent.empty().css("opacity", 1);
             parent.html(
                 '<p class="text-muted" style="padding: 15px;">' + __("No items found") + "</p>"
             );
             return;
         }
 
-        // Remove old Load More button before adding new rows
-        parent.find(".load-more").remove();
+        // Rows are built OFF screen and put on screen in one step once their stock,
+        // category, price and UOM are filled in. Drawing them first and filling the
+        // cells afterwards, as before, made every search flash "..." placeholders
+        // and shift the rows as each lookup landed -- the flicker after a search.
+        var $stage = $('<div class="item-selector-rows"></div>');
 
         // Column widths shift slightly when a UOM selector is shown (not every
         // child doctype has a "uom" field — e.g. Custom Quote Item doesn't).
@@ -290,9 +305,10 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             ? { category: 9, item_name: 25, item_code: 12, stock: 12, price: 10, uom: 10, qty: 14, action: 8 }
             : { category: 10, item_name: 33, item_code: 13, stock: 12, price: 10, uom: 0, qty: 14, action: 8 };
 
+        var $header = null;
         if (!append) {
             // Build table header
-            var header = $(
+            $header = $(
                 '<div class="item-selector-header" style="display:flex; font-weight:bold; padding:8px 4px; border-bottom:1px solid #d1d8dd;">' +
                     '<span style="width:' + w.category + '%;">' + __("Category") + '</span>' +
                     '<span style="width:' + w.item_name + '%;">' + __("Item Name") + '</span>' +
@@ -303,13 +319,8 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                     '<span style="width:' + w.qty + '%;">' + __("Quantity") + '</span>' +
                     '<span style="width:' + w.action + '%;"></span>' +
                 '</div>'
-            ).appendTo(parent);
-            var list = $('<div class="item-selector-rows"></div>').appendTo(parent);
-        } else {
-            // Append to existing row container
-            var list = parent.find(".item-selector-rows");
+            );
         }
-        var me = this;
 
         // Collect item codes for batch stock/detail lookup
         var item_codes = results.map(function (r) { return r[0]; });
@@ -360,7 +371,7 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                         '</button>' +
                     '</span>' +
                 '</div>'
-            ).appendTo(list);
+            ).appendTo($stage);
 
             // jQuery attribute selectors break on embedded quotes; keep a direct
             // handle on the row instead of re-querying by item code.
@@ -400,51 +411,82 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             });
         });
 
-        // Load stock/category/price/UOM info for all items
-        this.load_stock_info(item_codes);
-        this.load_item_details(item_codes);
-        if (this.uom_field) this.load_uom_info(item_codes);
+        // Load More keeps the stock of the pages already on screen.
+        if (!append || !this.stock_map) this.stock_map = {};
 
-        // Load More button
-        if (results.length >= this.page_length) {
-            $(
-                '<button class="btn btn-xs btn-default load-more" style="margin-top:8px;">' +
-                    __("Load More") +
-                    "</button>"
-            )
-                .appendTo(parent)
-                .on("click", function () {
-                    me.start += me.page_length;
-                    me.search();
-                });
-        }
+        // Stock / category / price / UOM for every row, filled into the off-screen rows.
+        var lookups = [
+            this.load_stock_info(item_codes, $stage),
+            this.load_item_details(item_codes, $stage),
+        ];
+        if (this.uom_field) lookups.push(this.load_uom_info(item_codes, $stage));
+
+        // A failed lookup must not leave the list stuck on the old results.
+        var settled = Promise.all(
+            lookups.map(function (p) { return Promise.resolve(p).catch(function () {}); })
+        );
+
+        settled.then(function () {
+            if (seq !== me._seq) return;
+
+            var list;
+            if (append) {
+                // Load More: add to the rows already on screen.
+                list = parent.find(".item-selector-rows");
+                parent.find(".load-more").remove();
+                list.append($stage.children());
+            } else {
+                parent.empty();
+                parent.append($header);
+                list = $stage.appendTo(parent);
+            }
+            parent.css("opacity", 1);
+
+            me.apply_stock_filter();
+
+            // Load More button
+            if (results.length >= me.page_length) {
+                $(
+                    '<button class="btn btn-xs btn-default load-more" style="margin-top:8px;">' +
+                        __("Load More") +
+                        "</button>"
+                )
+                    .appendTo(parent)
+                    .on("click", function () {
+                        me.start += me.page_length;
+                        me.search();
+                    });
+            }
+        });
     }
 
-    load_item_details(item_codes) {
+    load_item_details(item_codes, $scope) {
         // The "Item" search results column order depends on which custom
         // query the calling doctype set on item_code (see item_selector_hook.js
         // targets: Sales Invoice/Quotation/Purchase Invoice use erpnext's
         // item_query, Custom Quote falls back to the generic search_widget) —
         // each puts fields at a different index. Fetch details directly
         // instead of relying on result column position.
-        if (!item_codes.length) return;
+        if (!item_codes.length) return Promise.resolve();
         var me = this;
 
-        frappe.call({
-            method: "frappe.client.get_list",
-            args: {
-                doctype: "Item",
-                fields: ["name", "item_group", "standard_rate"],
-                filters: { name: ["in", item_codes] },
-                limit_page_length: item_codes.length,
-            },
-            callback: function (r) {
+        return frappe
+            .call({
+                method: "frappe.client.get_list",
+                args: {
+                    doctype: "Item",
+                    fields: ["name", "item_group", "standard_rate"],
+                    filters: { name: ["in", item_codes] },
+                    limit_page_length: item_codes.length,
+                },
+            })
+            .then(function (r) {
                 var item_map = {};
-                (r.message || []).forEach(function (d) {
+                ((r && r.message) || []).forEach(function (d) {
                     item_map[d.name] = d;
                 });
 
-                me.dialog.$wrapper.find(".item-selector-row").each(function () {
+                $scope.find(".item-selector-row").each(function () {
                     var $row = $(this);
                     var code = $row.data("aqrar-item");
                     var item = item_map[code] || {};
@@ -456,49 +498,51 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                     }
                 });
 
-                if (me.price_list) me._load_price_list_rates(item_codes);
-            },
-        });
+                if (me.price_list) return me._load_price_list_rates(item_codes, $scope);
+            });
     }
 
-    load_uom_info(item_codes) {
-        if (!item_codes.length) return;
-        var me = this;
+    load_uom_info(item_codes, $scope) {
+        if (!item_codes.length) return Promise.resolve();
 
-        frappe.call({
-            method: "frappe.client.get_list",
-            args: {
-                doctype: "Item",
-                fields: ["name", "stock_uom"],
-                filters: { name: ["in", item_codes] },
-                limit_page_length: item_codes.length,
-            },
-            callback: function (r) {
+        return frappe
+            .call({
+                method: "frappe.client.get_list",
+                args: {
+                    doctype: "Item",
+                    fields: ["name", "stock_uom"],
+                    filters: { name: ["in", item_codes] },
+                    limit_page_length: item_codes.length,
+                },
+            })
+            .then(function (r) {
                 var stock_uom_map = {};
-                (r.message || []).forEach(function (d) {
+                ((r && r.message) || []).forEach(function (d) {
                     stock_uom_map[d.name] = d.stock_uom;
                 });
 
-                frappe.call({
-                    method: "frappe.client.get_list",
-                    args: {
-                        doctype: "UOM Conversion Detail",
-                        parent: "Item",
-                        fields: ["parent", "uom"],
-                        filters: { parent: ["in", item_codes], parentfield: "uoms" },
-                        limit_page_length: 0,
-                    },
-                    callback: function (cr) {
+                return frappe
+                    .call({
+                        method: "frappe.client.get_list",
+                        args: {
+                            doctype: "UOM Conversion Detail",
+                            parent: "Item",
+                            fields: ["parent", "uom"],
+                            filters: { parent: ["in", item_codes], parentfield: "uoms" },
+                            limit_page_length: 0,
+                        },
+                    })
+                    .then(function (cr) {
                         var uom_map = {};
                         item_codes.forEach(function (code) {
                             uom_map[code] = stock_uom_map[code] ? [stock_uom_map[code]] : [];
                         });
-                        (cr.message || []).forEach(function (row) {
+                        ((cr && cr.message) || []).forEach(function (row) {
                             var list = uom_map[row.parent] || (uom_map[row.parent] = []);
                             if (list.indexOf(row.uom) === -1) list.push(row.uom);
                         });
 
-                        me.dialog.$wrapper.find(".item-uom").each(function () {
+                        $scope.find(".item-uom").each(function () {
                             var $select = $(this);
                             var code = $select.data("item");
                             var uoms = uom_map[code] && uom_map[code].length ? uom_map[code] : [stock_uom_map[code]];
@@ -509,53 +553,50 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                             });
                             if (stock_uom_map[code]) $select.val(stock_uom_map[code]);
                         });
-                    },
-                });
-            },
-        });
+                    });
+            });
     }
 
-    _load_price_list_rates(item_codes) {
+    _load_price_list_rates(item_codes, $scope) {
         var me = this;
 
-        frappe.call({
-            method: "frappe.client.get_list",
-            args: {
-                doctype: "Item Price",
-                fields: ["item_code", "price_list_rate"],
-                filters: {
-                    item_code: ["in", item_codes],
-                    price_list: me.price_list,
-                    selling: me.is_buying_doc ? 0 : 1,
-                    buying: me.is_buying_doc ? 1 : 0,
+        return frappe
+            .call({
+                method: "frappe.client.get_list",
+                args: {
+                    doctype: "Item Price",
+                    fields: ["item_code", "price_list_rate"],
+                    filters: {
+                        item_code: ["in", item_codes],
+                        price_list: me.price_list,
+                        selling: me.is_buying_doc ? 0 : 1,
+                        buying: me.is_buying_doc ? 1 : 0,
+                    },
+                    limit_page_length: item_codes.length,
                 },
-                limit_page_length: item_codes.length,
-            },
-            callback: function (r) {
+            })
+            .then(function (r) {
                 var price_map = {};
-                (r.message || []).forEach(function (p) {
+                ((r && r.message) || []).forEach(function (p) {
                     price_map[p.item_code] = p.price_list_rate;
                 });
 
-                me.dialog.$wrapper.find(".price-cell").each(function () {
+                $scope.find(".price-cell").each(function () {
                     var $cell = $(this);
                     var code = $cell.closest(".item-selector-row").data("aqrar-item");
                     if (price_map[code] !== undefined) {
                         $cell.text(format_currency(price_map[code]));
                     }
                 });
-            },
-        });
+            });
     }
 
-    load_stock_info(item_codes) {
-        if (!item_codes.length) return;
-        var me = this;
-        me.stock_map = {};
-        me._do_stock_fetch(item_codes, me.active_warehouse || "");
+    load_stock_info(item_codes, $scope) {
+        if (!item_codes.length) return Promise.resolve();
+        return this._do_stock_fetch(item_codes, this.active_warehouse || "", $scope);
     }
 
-    _do_stock_fetch(item_codes, warehouse) {
+    _do_stock_fetch(item_codes, warehouse, $scope) {
         var me = this;
 
         var filters = { item_code: ["in", item_codes] };
@@ -565,22 +606,24 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         // warehouse the count is from, default warehouse included.
         var warehouse_label = warehouse || __("All Warehouses");
 
-        frappe.call({
-            method: "frappe.client.get_list",
-            args: {
-                doctype: "Bin",
-                fields: ["item_code", "actual_qty"],
-                filters: filters,
-                limit_page_length: 500,
-            },
-            callback: function (r) {
+        return frappe
+            .call({
+                method: "frappe.client.get_list",
+                args: {
+                    doctype: "Bin",
+                    fields: ["item_code", "actual_qty"],
+                    filters: filters,
+                    limit_page_length: 500,
+                },
+            })
+            .then(function (r) {
                 // Build a fresh map — sum across warehouses when no specific warehouse
                 var fetched = {};
-                (r.message || []).forEach(function(b) {
+                ((r && r.message) || []).forEach(function (b) {
                     fetched[b.item_code] = (fetched[b.item_code] || 0) + (b.actual_qty || 0);
                 });
 
-                me.dialog.$wrapper.find(".item-selector-row").each(function () {
+                $scope.find(".item-selector-row").each(function () {
                     var $row    = $(this);
                     var code    = $row.data("aqrar-item");
                     var badge   = $row.find(".stock-badge");
@@ -606,10 +649,7 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
 
                     me.stock_map[code] = stock;
                 });
-
-                me.apply_stock_filter();
-            },
-        });
+            });
     }
 
     apply_stock_filter() {

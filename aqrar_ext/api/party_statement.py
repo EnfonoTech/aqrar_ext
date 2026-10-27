@@ -176,6 +176,25 @@ def company_block(company):
 	)
 
 
+def letter_head_block(company):
+	"""The company's own Letter Head (header and footer HTML) for the printed page.
+
+	Company.default_letter_head first, else the site's default Letter Head -- the
+	same choice ERPNext makes for its own print formats. Image letter heads are
+	already stored as HTML in `content` / `footer`, so both kinds print the same.
+	"""
+	name = frappe.db.get_value("Company", company, "default_letter_head") or frappe.db.get_value(
+		"Letter Head", {"is_default": 1, "disabled": 0}, "name"
+	)
+	if not name:
+		return frappe._dict()
+
+	letter_head = frappe.db.get_value(
+		"Letter Head", {"name": name, "disabled": 0}, ["content", "footer"], as_dict=True
+	)
+	return letter_head or frappe._dict()
+
+
 def get_ledger(party_type, party, company, from_date, to_date):
 	"""Rows of the General Ledger for one party, split into opening / entries / closing."""
 	from erpnext.accounts.report.general_ledger.general_ledger import execute
@@ -259,6 +278,7 @@ def build_context(party_type, party, company, from_date=None, to_date=None):
 		party_label_ar="المورد" if party_type == "Supplier" else "العميل",
 		party=party_block(party_type, party),
 		company=company_info,
+		letter_head=letter_head_block(company),
 		company_name=company,
 		currency=company_info.currency,
 		period=formatdate(from_date) + " — " + formatdate(to_date),

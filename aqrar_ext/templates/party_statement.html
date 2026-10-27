@@ -45,6 +45,9 @@
 	tr.open td, tr.close td { background: #f9fafb; font-weight: bold; border-bottom: 1px solid #111827; }
 	tr.close td { border-top: 1px solid #111827; }
 	.cur { font-size: 7.5pt; color: #6b7280; margin: -6px 0 8px; text-align: right; }
+	.lh-head { margin-bottom: 8px; }
+	.lh-head img, .lh-foot img { max-width: 100%; height: auto; }
+	.lh-foot { margin-top: 10px; }
 	.note { margin-top: 14px; padding-top: 6px; border-top: 1px solid #e5e7eb; font-size: 7.5pt; color: #6b7280; text-align: center; }
 </style>
 </head>
@@ -59,6 +62,8 @@
 		{% if p.cr %}<span><b>CRN / السجل التجاري:</b> {{ p.cr | e }}</span>{% endif %}
 	</div>
 {% endmacro %}
+
+{% if letter_head and letter_head.content %}<div class="lh-head">{{ letter_head.content }}</div>{% endif %}
 
 <table class="hdr"><tr>
 	<td class="en">{{ _("Party Statement") }}</td>
@@ -119,6 +124,8 @@
 		</tr>
 	</tbody>
 </table>
+
+{% if letter_head and letter_head.footer %}<div class="lh-foot">{{ letter_head.footer }}</div>{% endif %}
 
 <div class="note">{{ _("Generated on") }} {{ generated_on }} &middot; {{ company_name | e }}</div>
 </body>

@@ -145,7 +145,6 @@ function ledger_values(report) {
 }
 
 const LEDGER_PRINT = __("Print Statement");
-const LEDGER_PDF = __("Download Statement PDF");
 
 function add_ledger_buttons() {
     const report = frappe.query_report;
@@ -157,10 +156,6 @@ function add_ledger_buttons() {
     report.page.add_inner_button(LEDGER_PRINT, function () {
         const values = ledger_values(report);
         if (values) print_statement(values);
-    });
-    report.page.add_inner_button(LEDGER_PDF, function () {
-        const values = ledger_values(report);
-        if (values) download_statement(values);
     });
     return true;
 }
