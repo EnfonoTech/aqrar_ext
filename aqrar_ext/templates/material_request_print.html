@@ -1,0 +1,51 @@
+<!-- CR-005: minimal branch Material Request print. Item Code, Description,
+     Quantity, Required By only; no rates. Source of Print Format
+     "Aqrar Material Request" (setup_data.ensure_material_request_print_format). -->
+<style>
+	.mr-wrap { font-family: Arial, sans-serif; font-size: 13px; color: #000; }
+	.mr-head { display: flex; justify-content: space-between; margin-bottom: 14px; font-size: 12px; line-height: 1.8; }
+	.mr-table { width: 100%; border-collapse: collapse; }
+	.mr-table th { background: #f0f0f0; border: 1px solid #ccc; padding: 6px 8px; text-align: left; font-size: 12px; }
+	.mr-table td { border: 1px solid #ddd; padding: 6px 8px; font-size: 12px; vertical-align: top; }
+	.mr-num { text-align: center; }
+</style>
+<div class="mr-wrap">
+	<div style="text-align:center; margin-bottom:12px;">
+		<h2 style="font-size:20px; margin:0;">{{ _("Material Request") }}</h2>
+		<div style="font-size:12px; color:#555;">{{ doc.name }}</div>
+		{% if doc.docstatus == 0 %}<div style="color:red; font-weight:700;">{{ _("DRAFT") }}</div>{% endif %}
+		{% if doc.custom_urgent %}<div style="color:red; font-weight:700;">{{ _("URGENT") }}</div>{% endif %}
+	</div>
+	<div class="mr-head">
+		<div>
+			{% if doc.set_from_warehouse %}<b>{{ _("From") }}:</b> {{ doc.set_from_warehouse }}<br>{% endif %}
+			{% if doc.set_warehouse %}<b>{{ _("To") }}:</b> {{ doc.set_warehouse }}{% endif %}
+		</div>
+		<div style="text-align:right;">
+			<b>{{ _("Date") }}:</b> {{ frappe.utils.formatdate(doc.transaction_date) }}<br>
+			<b>{{ _("Company") }}:</b> {{ doc.company }}
+		</div>
+	</div>
+	<table class="mr-table">
+		<thead>
+			<tr>
+				<th style="width:36px;">#</th>
+				<th style="width:120px;">{{ _("Item Code") }}</th>
+				<th>{{ _("Description") }}</th>
+				<th class="mr-num" style="width:90px;">{{ _("Quantity") }}</th>
+				<th class="mr-num" style="width:100px;">{{ _("Required By") }}</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for row in doc.items %}
+			<tr>
+				<td>{{ row.idx }}</td>
+				<td>{{ row.item_code }}</td>
+				<td>{{ row.item_name }}{% if row.description and row.description != row.item_name %}<br><small style="color:#555;">{{ row.description | striptags }}</small>{% endif %}</td>
+				<td class="mr-num">{{ row.get_formatted("qty") }} {{ row.uom or "" }}</td>
+				<td class="mr-num">{{ frappe.utils.formatdate(row.schedule_date) if row.schedule_date else "" }}</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+</div>

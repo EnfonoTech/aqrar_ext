@@ -140,7 +140,8 @@ frappe.ui.form.on("Sales Invoice", {
             "tax_category", "taxes_and_charges", "shipping_rule", "incoterm", "named_place",
             "taxes", "total_taxes_and_charges", "base_total_taxes_and_charges",
             "update_stock", "set_warehouse", "set_target_warehouse",
-            "po_no", "po_date", "commission_rate", "total_commission", "sales_partner",
+            // po_no / po_date stay visible: CR-011, branch users enter the Customer PO
+            "commission_rate", "total_commission", "sales_partner",
             "amount_eligible_for_commission",
             "is_cash_or_non_trade_discount",
             // accounting_dimensions_section fields — hide all except project
@@ -154,7 +155,7 @@ frappe.ui.form.on("Sales Invoice", {
         // Hide sections (accounting_dimensions_section kept visible so project field shows)
         [
             "currency_and_price_list",
-            "section_break_49", "taxes_section", "customer_po_details",
+            "section_break_49", "taxes_section",
             "more_info", "sales_team_section_break", "section_break2",
             "edit_printing_settings", "more_information", "subscription_section",
         ].forEach(s => frm.set_df_property(s, "hidden", 1));
