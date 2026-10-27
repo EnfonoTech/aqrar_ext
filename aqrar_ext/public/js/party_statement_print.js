@@ -40,16 +40,30 @@ function print_statement(values) {
             doc.write(html);
             doc.close();
 
-            // Let the frame lay the page out before the print dialog reads it.
-            setTimeout(function () {
-                try {
-                    frame.contentWindow.focus();
-                    frame.contentWindow.print();
-                } catch (err) {
-                    frappe.msgprint(__("Could not open the print dialog. Use Download PDF instead."));
-                }
-                setTimeout(function () { frame.remove(); }, 60000);
-            }, 400);
+            // The print dialog reads the page as it is at that moment, so wait for
+            // the letterhead image (and any other) to load first, but never longer
+            // than 5 s.
+            const images = Array.prototype.slice.call(doc.images || []).filter(function (img) { return !img.complete; });
+            const loaded = Promise.all(images.map(function (img) {
+                return new Promise(function (resolve) {
+                    img.addEventListener("load", resolve);
+                    img.addEventListener("error", resolve);
+                });
+            }));
+            const timeout = new Promise(function (resolve) { setTimeout(resolve, 5000); });
+
+            Promise.race([loaded, timeout]).then(function () {
+                // Let the frame lay the page out before the print dialog reads it.
+                setTimeout(function () {
+                    try {
+                        frame.contentWindow.focus();
+                        frame.contentWindow.print();
+                    } catch (err) {
+                        frappe.msgprint(__("Could not open the print dialog. Use Download PDF instead."));
+                    }
+                    setTimeout(function () { frame.remove(); }, 60000);
+                }, 400);
+            });
         });
 }
 
