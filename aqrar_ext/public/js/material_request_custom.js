@@ -100,6 +100,15 @@ frappe.ui.form.on("Material Request", {
         ["schedule_date"].forEach(function (f) { grid.update_docfield_property(f, "in_list_view", 0); });
     },
 
+    refresh(frm) {
+        // CR-005: branches only transfer (Purpose defaults to Material Transfer),
+        // so branch users don't see the Purpose field. Same role test as the
+        // simplified Sales Invoice view in customer_price_history.js.
+        var branch_only = frappe.user.has_role("Branch User") &&
+            !frappe.user.has_role("System Manager") && !frappe.user.has_role("Stock Manager");
+        frm.toggle_display("material_request_type", !branch_only || frm.doc.material_request_type !== "Material Transfer");
+    },
+
     transaction_date(frm) {
         (frm.doc.items || []).forEach(function (row) {
             refresh_warehouse_qty(frm, row.doctype, row.name);

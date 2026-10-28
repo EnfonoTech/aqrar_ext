@@ -65,14 +65,42 @@ def validate_vat_uniqueness(doc, method=None):
 	if not duplicate:
 		return
 
-	message = _("VAT Registration Number {0} is already used by customer {1}.").format(
-		bold(vat_number), bold(duplicate)
-	)
-
 	is_exempt = frappe.db.exists(
 		"Has Role", {"parent": frappe.session.user, "role": ALLOW_DUPLICATE_VAT_ROLE}
 	)
 	if is_exempt:
-		frappe.msgprint(message, title=_("Duplicate VAT Registration Number"), indicator="orange")
+		# worded so it can't be mistaken for the block below: the save goes on
+		frappe.msgprint(
+			_("Allowed. VAT Registration Number {0} is also used by customer {1}; this customer is saved anyway because you have the {2} role.").format(
+				bold(vat_number), bold(duplicate), bold(_(ALLOW_DUPLICATE_VAT_ROLE))
+			),
+			title=_("Duplicate VAT Allowed"),
+			indicator="blue",
+		)
 	else:
-		frappe.throw(message, title=_("Duplicate VAT Registration Number"))
+		frappe.throw(
+			_("VAT Registration Number {0} is already used by customer {1}. Ask a user with the {2} role if both customers must keep it.").format(
+				bold(vat_number), bold(duplicate), bold(_(ALLOW_DUPLICATE_VAT_ROLE))
+			),
+			title=_("Duplicate VAT Registration Number"),
+		)
+
+
+# CR-024: Quick Entry asks for building number and district (KSA national
+# address, ksa_compliance's Address fields). ERPNext's make_address only copies
+# the standard address fields, so carry these two over to the primary Address
+# it has just created (Customer.on_update -> create_primary_address).
+QUICK_ENTRY_ADDRESS_FIELDS = ("custom_building_number", "custom_area")
+
+
+def copy_quick_entry_address(doc, method=None):
+	if not doc.flags.is_new_doc or not doc.get("customer_primary_address"):
+		return
+	address_meta = frappe.get_meta("Address")
+	values = {
+		field: doc.get(field)
+		for field in QUICK_ENTRY_ADDRESS_FIELDS
+		if doc.get(field) and address_meta.has_field(field)
+	}
+	if values:
+		frappe.db.set_value("Address", doc.customer_primary_address, values)

@@ -460,6 +460,8 @@ VALUATION_GRID_WIDTHS = {
 	"Purchase Invoice Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "rate": 1, "custom_valuation_rate": 1, "custom_standard_selling_rate": 1, "custom_wholesale_selling_rate": 1, "custom_view_stock": 1, "amount": 1},
 	"Purchase Order Item": {"item_code": 2, "schedule_date": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
 	"Purchase Receipt Item": {"item_code": 2, "qty": 1, "rejected_qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
+	# Not an item grid: room for the Allocate tick (CR-030).
+	"Payment Entry Reference": {"reference_doctype": 1, "reference_name": 2, "total_amount": 2, "outstanding_amount": 2, "allocated_amount": 2, "custom_allocate": 1},
 }
 VALUATION_GRID_HIDDEN = {
 	"Sales Order Item": ("delivery_date",),
@@ -613,6 +615,127 @@ def undo_price_override_on_minimum_price():
 	frappe.clear_cache()
 
 
+LOCATION_STOCK_DOCTYPES = ("Sales Invoice Item", "Delivery Note Item", "Quotation Item", "Sales Order Item")
+
+
+def ensure_location_stock_label():
+	"""CR-013: the stock-at-warehouse column (`actual_qty`) reads "Location Stock"
+	and stays off prints. Replaces ticket #2's hand-set "Qty" label (2026-10-16),
+	which the client asked to change on 2026-10-25."""
+	for doctype in LOCATION_STOCK_DOCTYPES:
+		if not frappe.get_meta(doctype).get_field("actual_qty"):
+			continue
+		for prop, value, ptype in (("label", "Location Stock", "Data"), ("print_hide", 1, "Check")):
+			frappe.make_property_setter(
+				{
+					"doctype": doctype,
+					"fieldname": "actual_qty",
+					"property": prop,
+					"value": value,
+					"property_type": ptype,
+				},
+				is_system_generated=False,
+			)
+		frappe.clear_cache(doctype=doctype)
+
+
+# CR-011: Customer PO number/date in the header column, after the first anchor
+# that exists. Sales Order already has them there; Quotation has no PO field.
+CUSTOMER_PO_PLACEMENT = {
+	"Sales Invoice": ("due_date", "posting_time"),
+	"Delivery Note": ("set_posting_time", "posting_time"),
+}
+
+
+def move_fields_after(doctype, fieldnames, anchors):
+	"""Move `fieldnames` right after the first existing anchor by rewriting the
+	doctype's field_order Property Setter from its current order. Runs from
+	after_migrate, i.e. after apps such as ksa_compliance re-sync their own
+	field_order, so the move is re-applied on top of theirs every migrate."""
+	frappe.clear_cache(doctype=doctype)
+	order = [df.fieldname for df in frappe.get_meta(doctype).fields]
+	# fields a site lacks (e.g. site-made custom fields) are skipped, not fatal
+	fieldnames = [f for f in fieldnames if f in order]
+	anchor = next((a for a in anchors if a in order and a not in fieldnames), None)
+	if not anchor or not fieldnames:
+		return
+	moved = [f for f in order if f not in fieldnames]
+	at = moved.index(anchor) + 1
+	moved[at:at] = list(fieldnames)
+	if moved == order:
+		return
+	frappe.make_property_setter(
+		{
+			"doctype": doctype,
+			"doctype_or_field": "DocType",
+			"property": "field_order",
+			"value": json.dumps(moved),
+			"property_type": "Data",
+		},
+		is_system_generated=False,
+	)
+	frappe.clear_cache(doctype=doctype)
+
+
+# CR-024: VAT number first, then English and Arabic name and CR number, at the
+# top of the Customer form (VAT and CR sit in the Defaults tab otherwise).
+CUSTOMER_FORM_TOP = (
+	"custom_vat_registration_number",
+	"customer_name",
+	"custom_customer_arabic_name",
+	"custom_cr_number",
+)
+
+
+def ensure_customer_form_order():
+	move_fields_after("Customer", CUSTOMER_FORM_TOP, ("naming_series", "basic_info"))
+
+
+def ensure_customer_po_on_header():
+	for doctype, anchors in CUSTOMER_PO_PLACEMENT.items():
+		move_fields_after(doctype, ("po_no", "po_date"), anchors)
+
+
+MATERIAL_REQUEST_PRINT_FORMAT = "Aqrar Material Request"
+
+
+def ensure_material_request_print_format():
+	"""CR-005: minimal Material Request print (templates/material_request_print.html),
+	made the default unless the site already picked one. The HTML is refreshed
+	from the template on every migrate; edit the template, not the record."""
+	path = frappe.get_app_path("aqrar_ext", "templates", "material_request_print.html")
+	with open(path) as f:
+		html = f.read()
+	if frappe.db.exists("Print Format", MATERIAL_REQUEST_PRINT_FORMAT):
+		frappe.db.set_value("Print Format", MATERIAL_REQUEST_PRINT_FORMAT, "html", html)
+	else:
+		frappe.get_doc(
+			{
+				"doctype": "Print Format",
+				"name": MATERIAL_REQUEST_PRINT_FORMAT,
+				"doc_type": "Material Request",
+				"module": "Aqrar Ext",
+				"standard": "No",
+				"custom_format": 1,
+				"print_format_type": "Jinja",
+				"html": html,
+			}
+		).insert(ignore_permissions=True)
+	if not frappe.db.get_value(
+		"Property Setter", {"doc_type": "Material Request", "property": "default_print_format"}
+	):
+		frappe.make_property_setter(
+			{
+				"doctype": "Material Request",
+				"doctype_or_field": "DocType",
+				"property": "default_print_format",
+				"value": MATERIAL_REQUEST_PRINT_FORMAT,
+				"property_type": "Data",
+			},
+			is_system_generated=False,
+		)
+
+
 def relocate_payment_details():
 	"""Move the Payment Details table (first created under Payment Mode, read-only
 	and so hidden while empty) into its own section at the bottom of the Payments
@@ -630,6 +753,10 @@ def create():
 	"""Entry point for hooks.after_migrate."""
 	ensure_custom_fields()
 	ensure_valuation_rate_grid_widths()
+	ensure_location_stock_label()
+	ensure_customer_po_on_header()
+	ensure_customer_form_order()
+	ensure_material_request_print_format()
 	relocate_payment_details()
 	undo_price_override_on_minimum_price()
 	ensure_price_override_role()
@@ -745,6 +872,22 @@ for _dt, _label, _after in (
 			"description": "Ledger balance as of the document date. Positive: the party owes you (debit). Negative: you owe the party (credit).",
 		}
 	)
+
+# Payment Entry references: tick a row to allocate it (CR-030, ticket #5,
+# public/js/payment_entry.js). Ticking fills the allocated amount; core drops
+# unticked rows (allocated 0) on save.
+CUSTOM_FIELDS.setdefault("Payment Entry Reference", []).append(
+	{
+		"fieldname": "custom_allocate",
+		"label": "Allocate",
+		"fieldtype": "Check",
+		"insert_after": "allocated_amount",
+		"in_list_view": 1,
+		"columns": 1,
+		"no_copy": 1,
+		"print_hide": 1,
+	}
+)
 
 CUSTOM_FIELDS.setdefault("Selling Settings", []).append(
 	{
