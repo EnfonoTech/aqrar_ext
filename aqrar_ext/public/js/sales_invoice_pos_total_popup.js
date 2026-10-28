@@ -98,18 +98,23 @@ function aqrar_save_quietly(frm) {
 	});
 }
 
-function aqrar_submit_and_print(frm) {
-	// ZATCA: a VAT customer without a full national address goes as Simplified,
-	// or not at all (sales_invoice_zatca.js).
+// Every submit in this file goes through here. ZATCA: a VAT customer without a
+// full national address goes as Simplified, or not at all (sales_invoice_zatca.js).
+// Resolves without submitting when the user stops it; callers already check
+// docstatus afterwards.
+function aqrar_save_submit(frm) {
 	var confirm_type = window.aqrar_confirm_zatca_type || function () { return Promise.resolve(true); };
 	return confirm_type(frm).then(function (ok) {
-		if (!ok) return;
-		return frm.save("Submit").then(function () {
-			if (frm.doc.docstatus === 1) {
-				aqrar_open_invoice_print(frm);
-				frm.reload_doc();
-			}
-		});
+		if (ok) return frm.save("Submit");
+	});
+}
+
+function aqrar_submit_and_print(frm) {
+	return aqrar_save_submit(frm).then(function () {
+		if (frm.doc.docstatus === 1) {
+			aqrar_open_invoice_print(frm);
+			frm.reload_doc();
+		}
 	});
 }
 
@@ -478,8 +483,7 @@ function aqrar_render_payment_dialog(frm, modes, is_cash_customer) {
 			payload.forEach(function (p) { recorded[p.mode_of_payment] = p.amount; });
 			aqrar_set_saved_payments(frm, recorded, invoice_total - total_rounded);
 			frappe.flags.aqrar_skip_payment_popup = true;
-			frm
-				.save("Submit")
+			aqrar_save_submit(frm)
 				.then(function () {
 					if (frm.doc.docstatus !== 1) return;
 					aqrar_open_invoice_print(frm);
@@ -762,7 +766,7 @@ function aqrar_show_pdc_popup(frm) {
 
 			if (submit && frm.doc.docstatus === 0) {
 				frappe.flags.aqrar_skip_payment_popup = true;
-				frm.save("Submit").then(function () {
+				aqrar_save_submit(frm).then(function () {
 					if (frm.doc.docstatus !== 1) return;
 					aqrar_open_invoice_print(frm);
 					finalize();

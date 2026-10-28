@@ -3,9 +3,9 @@
 // without one. Before submitting, when the address is incomplete, ask whether to
 // send this invoice as Simplified instead (aqrar_ext.aqrar_ext.utils.zatca_simplified).
 //
-// Called from aqrar_submit_and_print (sales_invoice_pos_total_popup.js), the one
-// place every Sales Invoice is submitted from: the payment popups take over
-// before_submit and submit with frm.save("Submit"), which does not run it again.
+// Called from aqrar_save_submit (sales_invoice_pos_total_popup.js), which every
+// Sales Invoice submit goes through: the payment popups take over before_submit
+// and submit with frm.save("Submit"), which does not run before_submit again.
 
 (function () {
 
