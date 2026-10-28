@@ -5,9 +5,9 @@
 // (name + mobile); the national address (street, building number, district,
 // city, postal code, country = Saudi Arabia).
 // The address is optional: some VAT customers only give their VAT number and
-// name. The customer is saved anyway with a warning, and their invoices can be
-// saved as drafts; ksa_compliance refuses to SUBMIT a B2B invoice until the
-// buyer's national address is complete (ZATCA). Building number and district
+// name. The customer is saved anyway with a warning. A standard (B2B) invoice
+// needs the full address for ZATCA, so until it is filled in, their invoices are
+// offered as Simplified on submit (sales_invoice_zatca.js). Building number and district
 // are copied onto the primary
 // Address by aqrar_ext.overrides.customer.copy_quick_entry_address.
 //
@@ -85,7 +85,7 @@ class AqrarCustomerQuickEntryForm extends frappe.ui.form.ContactAddressQuickEntr
         return super.insert().then((r) => {
             if (missing) {
                 frappe.show_alert({
-                    message: __("Customer saved without a full national address. Invoices can be saved as draft, but cannot be submitted until the address is complete."),
+                    message: __("Customer saved without a full national address. Their invoices can only go to ZATCA as simplified tax invoices until the address is completed."),
                     indicator: "orange",
                 }, 10);
             }

@@ -99,11 +99,17 @@ function aqrar_save_quietly(frm) {
 }
 
 function aqrar_submit_and_print(frm) {
-	return frm.save("Submit").then(function () {
-		if (frm.doc.docstatus === 1) {
-			aqrar_open_invoice_print(frm);
-			frm.reload_doc();
-		}
+	// ZATCA: a VAT customer without a full national address goes as Simplified,
+	// or not at all (sales_invoice_zatca.js).
+	var confirm_type = window.aqrar_confirm_zatca_type || function () { return Promise.resolve(true); };
+	return confirm_type(frm).then(function (ok) {
+		if (!ok) return;
+		return frm.save("Submit").then(function () {
+			if (frm.doc.docstatus === 1) {
+				aqrar_open_invoice_print(frm);
+				frm.reload_doc();
+			}
+		});
 	});
 }
 
