@@ -172,6 +172,8 @@ doc_events = {
 		# the final posting date. See utils/stock_transfer_backdate.py.
 		"before_validate": [
 			_STOCK_TRANSFER_BACKDATE_HOOK,
+			# rows and header must agree before anything reads the warehouses
+			"aqrar_ext.aqrar_ext.utils.transfer_warehouses.sync_transfer_warehouses",
 			"aqrar_ext.events.material_request.set_stock_entry_warehouse_qty",
 		],
 		"validate": _COST_CENTER_HOOK,
