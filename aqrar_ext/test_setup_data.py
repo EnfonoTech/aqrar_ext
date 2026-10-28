@@ -34,6 +34,11 @@ class TestMoveFieldsAfter(FrappeTestCase):
 			at = order.index(anchor)
 			self.assertEqual(order[at + 1 : at + 3], ["po_no", "po_date"], doctype)
 
+	def test_project_follows_po_date(self):
+		setup_data.ensure_customer_po_on_header()
+		order = field_order("Sales Invoice")
+		self.assertEqual(order[order.index("po_date") + 1], "project")
+
 	def test_idempotent(self):
 		setup_data.ensure_customer_po_on_header()
 		before = frappe.db.get_value(

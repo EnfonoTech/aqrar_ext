@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
@@ -211,6 +213,57 @@ class TestPartyStatement(FrappeTestCase):
 		try:
 			with self.assertRaises(frappe.PermissionError):
 				get_party_statement_html("Customer", CUSTOMER, COMPANY, self.old, today())
+		finally:
+			frappe.set_user("Administrator")
+
+	def branch_user(self, company):
+		"""Ledger access but no role that may open the Company record (jaleel on prod)."""
+		email = "statement.branch@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": "Branch",
+					"send_welcome_email": 0,
+					"roles": [{"role": "Accounts User"}, {"role": "Sales User"}],
+				}
+			).insert(ignore_permissions=True)
+		frappe.db.delete("User Permission", {"user": email, "allow": "Company"})
+		frappe.get_doc(
+			{"doctype": "User Permission", "user": email, "allow": "Company", "for_value": company, "is_default": 1}
+		).insert(ignore_permissions=True)
+		frappe.clear_cache(user=email)
+		return email
+
+	def test_branch_user_prints_own_company(self):
+		from_date, to_date = self.period()
+		frappe.set_user(self.branch_user(COMPANY))
+		real = frappe.has_permission
+
+		def no_company_role(doctype, *args, **kwargs):
+			# prod: the branch roles carry no read permission on Company
+			if doctype == "Company":
+				if kwargs.get("throw"):
+					raise frappe.PermissionError
+				return False
+			return real(doctype, *args, **kwargs)
+
+		try:
+			with patch.object(frappe, "has_permission", no_company_role):
+				self.assertIn("html", get_party_statement_html("Customer", CUSTOMER, COMPANY, from_date, to_date))
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_branch_user_refused_other_company(self):
+		other = frappe.db.get_value("Company", {"name": ["!=", COMPANY]}, "name")
+		if not other:
+			self.skipTest("needs a second company")
+		from_date, to_date = self.period()
+		frappe.set_user(self.branch_user(other))
+		try:
+			with self.assertRaises(frappe.PermissionError):
+				get_party_statement_html("Customer", CUSTOMER, COMPANY, from_date, to_date)
 		finally:
 			frappe.set_user("Administrator")
 

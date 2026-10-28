@@ -16,6 +16,7 @@ import re
 
 import frappe
 from frappe import _
+from frappe.core.doctype.user_permission.user_permission import get_permitted_documents
 from frappe.utils import flt, formatdate, get_first_day, getdate, today
 
 TEMPLATE = "aqrar_ext/templates/party_statement.html"
@@ -256,11 +257,26 @@ def validate_request(party_type, party, company, from_date, to_date):
 	# ledger is read straight from the General Ledger query, which has no permission
 	# check of its own, so the ledger and the company are checked here too.
 	frappe.has_permission(party_type, "read", doc=party, throw=True)
-	frappe.has_permission("Company", "read", doc=company, throw=True)
 	frappe.has_permission("GL Entry", "read", throw=True)
+	check_company_allowed(company)
 
 	if getdate(from_date) > getdate(to_date):
 		frappe.throw(_("From Date cannot be after To Date"))
+
+
+def check_company_allowed(company):
+	"""The user's own company restriction, not read access to the Company record.
+
+	Branch staff often have no role that may open the Company record (jaleel on
+	prod), so has_permission("Company", "read") refused them their own company's
+	statement. What matters is the User Permission on Company: with one set, only
+	those companies may be printed; without one, any company the ledger allows.
+	"""
+	if not frappe.db.exists("Company", company):
+		frappe.throw(_("Company {0} does not exist").format(company))
+	allowed = get_permitted_documents("Company")
+	if allowed and company not in allowed:
+		frappe.throw(_("You are not allowed to print statements for {0}").format(company), frappe.PermissionError)
 
 
 def build_context(party_type, party, company, from_date=None, to_date=None):

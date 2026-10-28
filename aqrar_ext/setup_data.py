@@ -691,9 +691,15 @@ def ensure_customer_form_order():
 	move_fields_after("Customer", CUSTOMER_FORM_TOP, ("naming_series", "basic_info"))
 
 
+# Voice note 28 Oct: Project on the Sales Invoice main screen, next to the PO.
+PROJECT_PLACEMENT = {"Sales Invoice": ("po_date",)}
+
+
 def ensure_customer_po_on_header():
 	for doctype, anchors in CUSTOMER_PO_PLACEMENT.items():
 		move_fields_after(doctype, ("po_no", "po_date"), anchors)
+	for doctype, anchors in PROJECT_PLACEMENT.items():
+		move_fields_after(doctype, ("project",), anchors)
 
 
 MATERIAL_REQUEST_PRINT_FORMAT = "Aqrar Material Request"
@@ -876,6 +882,22 @@ for _dt, _label, _after in (
 # Payment Entry references: tick a row to allocate it (CR-030, ticket #5,
 # public/js/payment_entry.js). Ticking fills the allocated amount; core drops
 # unticked rows (allocated 0) on save.
+# ZATCA: VAT customer without a national address sent as Simplified, chosen in
+# the submit popup (utils/zatca_simplified.py). Shown only once ticked.
+CUSTOM_FIELDS.setdefault("Sales Invoice", []).append(
+	{
+		"fieldname": "custom_send_as_simplified",
+		"label": "Send to ZATCA as Simplified",
+		"fieldtype": "Check",
+		"insert_after": "tax_id",
+		"read_only": 1,
+		"depends_on": "eval:doc.custom_send_as_simplified",
+		"description": "National address missing: sent as a simplified tax invoice. The buyer cannot claim its input VAT.",
+		"no_copy": 1,
+		"print_hide": 1,
+	}
+)
+
 CUSTOM_FIELDS.setdefault("Payment Entry Reference", []).append(
 	{
 		"fieldname": "custom_allocate",

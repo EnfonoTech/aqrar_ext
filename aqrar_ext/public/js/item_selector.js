@@ -277,6 +277,16 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         clearTimeout(this._dim_timer);
         this._dim_timer = setTimeout(function () { $container.css("opacity", 0.55); }, 250);
 
+        // Leaving the Item Name box (e.g. to type a quantity) fires its change event
+        // again with the same text. Re-running that search rebuilt the rows and threw
+        // the quantity away while it was being typed, so an unchanged search is skipped.
+        var key = JSON.stringify([args, this.active_warehouse || ""]);
+        if (!args.start && key === this._last_search_key) {
+            clearTimeout(this._dim_timer);
+            return;
+        }
+        this._last_search_key = key;
+
         frappe.link_search("Item", args, function (results) {
             if (seq !== me._seq) return;
             me.render_results(results, args.start > 0, seq);
@@ -446,9 +456,13 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                 parent.find(".load-more").remove();
                 list.append($stage.children());
             } else {
+                // Quantities typed into the old rows (and the box being typed in) move
+                // to the same items in the new list instead of being dropped.
+                var typed = me.capture_typed_qty(parent);
                 parent.empty();
                 parent.append($header);
                 list = $stage.appendTo(parent);
+                me.restore_typed_qty(list, typed);
             }
             clearTimeout(me._dim_timer);
             parent.css("opacity", 1);
@@ -600,6 +614,34 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                     }
                 });
             });
+    }
+
+    capture_typed_qty($parent) {
+        var typed = { qty: {}, focused: null, caret: null };
+        $parent.find(".item-selector-row").each(function () {
+            var $inp = $(this).find(".item-qty");
+            var code = $(this).data("aqrar-item");
+            if ($inp.val() !== "") typed.qty[code] = $inp.val();
+            if ($inp.is(document.activeElement)) {
+                typed.focused = code;
+                try { typed.caret = $inp[0].selectionStart; } catch (e) { /* number inputs */ }
+            }
+        });
+        return typed;
+    }
+
+    restore_typed_qty($list, typed) {
+        $list.find(".item-selector-row").each(function () {
+            var code = $(this).data("aqrar-item");
+            var $inp = $(this).find(".item-qty");
+            if (code in typed.qty) $inp.val(typed.qty[code]);
+            if (code === typed.focused) {
+                $inp.trigger("focus");
+                if (typed.caret != null) {
+                    try { $inp[0].setSelectionRange(typed.caret, typed.caret); } catch (e) { /* number inputs */ }
+                }
+            }
+        });
     }
 
     load_stock_info(item_codes, $scope) {

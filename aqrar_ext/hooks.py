@@ -65,6 +65,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/item_valuation_rate.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/cash_customer.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/customer_quick_entry.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/sales_invoice_zatca.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/customer_statement.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/party_statement_print.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/material_request_custom.js?v={_ASSET_V}",
@@ -95,6 +96,8 @@ override_doctype_class = {
 	"Quotation": "aqrar_ext.overrides.quotation.CustomQuotation",
 	"Sales Invoice": "aqrar_ext.overrides.sales_invoice.CustomSalesInvoice",
 	"Purchase Invoice": "aqrar_ext.overrides.purchase_invoice.CustomPurchaseInvoice",
+	# ZATCA: "Send as Simplified" for VAT customers without a national address.
+	"Sales Invoice Additional Fields": "aqrar_ext.overrides.sales_invoice_additional_fields.CustomSalesInvoiceAdditionalFields",
 }
 
 # Document events
@@ -134,6 +137,10 @@ _STOCK_TRANSFER_BACKDATE_NOTE_HOOK = (
 _STOCK_TRANSFER_COMPANY_HOOK = (
 	"aqrar_ext.aqrar_ext.utils.stock_transfer_backdate.validate_company_stock_transfer_backdate"
 )
+
+# Customer/Supplier Ledger Summary crash on a list-valued Party filter
+# (ERPNext core); see utils/ledger_summary_filters.py.
+before_request = ["aqrar_ext.aqrar_ext.utils.ledger_summary_filters.normalize_party_filter"]
 
 doc_events = {
 	"Purchase Invoice": {
@@ -194,6 +201,7 @@ doc_events = {
 			_COST_CENTER_HOOK,
 			_VALUATION_FLOOR_HOOK,
 			_CASH_CUSTOMER_HOOK,
+			"aqrar_ext.aqrar_ext.utils.zatca_simplified.sync_simplified_flag",
 		],
 		"before_save": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_save",
 		"before_print": "aqrar_ext.aqrar_ext.overrides.sales_invoice.before_print",

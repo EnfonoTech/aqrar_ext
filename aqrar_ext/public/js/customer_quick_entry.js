@@ -4,9 +4,11 @@
 // VAT number, English name, Arabic name, CR number, customer type; one contact
 // (name + mobile); the national address (street, building number, district,
 // city, postal code, country = Saudi Arabia).
-// The address is mandatory once a VAT number is entered: a standard (B2B) tax
-// invoice needs the buyer's address for ZATCA, a walk-in customer without VAT
-// does not (CR-025). Building number and district are copied onto the primary
+// The address is optional: some VAT customers only give their VAT number and
+// name. The customer is saved anyway with a warning, and their invoices can be
+// saved as drafts; ksa_compliance refuses to SUBMIT a B2B invoice until the
+// buyer's national address is complete (ZATCA). Building number and district
+// are copied onto the primary
 // Address by aqrar_ext.overrides.customer.copy_quick_entry_address.
 //
 // Fields that exist only on some sites (Arabic name, CR number) are offered
@@ -15,7 +17,7 @@
 
 (function () {
 
-const NEEDS_ADDRESS = "eval:doc.custom_vat_registration_number";
+const ADDRESS_FIELDS = ["address_line1", "custom_building_number", "custom_area", "city", "pincode"];
 
 function customer_has(fieldname) {
     return !!frappe.meta.get_docfield("Customer", fieldname);
@@ -60,16 +62,16 @@ class AqrarCustomerQuickEntryForm extends frappe.ui.form.ContactAddressQuickEntr
             {
                 fieldtype: "Section Break",
                 label: __("National Address"),
-                description: __("Required when a VAT number is entered."),
+                description: __("Needed before an invoice for a VAT customer can be submitted to ZATCA. Leave empty if not known yet."),
                 collapsible: 0,
             },
-            { label: __("Street Name"), fieldname: "address_line1", fieldtype: "Data", mandatory_depends_on: NEEDS_ADDRESS },
-            { label: __("Building Number"), fieldname: "custom_building_number", fieldtype: "Data", mandatory_depends_on: NEEDS_ADDRESS },
-            { label: __("District"), fieldname: "custom_area", fieldtype: "Data", mandatory_depends_on: NEEDS_ADDRESS },
+            { label: __("Street Name"), fieldname: "address_line1", fieldtype: "Data" },
+            { label: __("Building Number"), fieldname: "custom_building_number", fieldtype: "Data" },
+            { label: __("District"), fieldname: "custom_area", fieldtype: "Data" },
             { fieldtype: "Column Break" },
-            { label: __("City"), fieldname: "city", fieldtype: "Data", mandatory_depends_on: NEEDS_ADDRESS },
-            { label: __("Postal Code"), fieldname: "pincode", fieldtype: "Data", mandatory_depends_on: NEEDS_ADDRESS },
-            { label: __("Country"), fieldname: "country", fieldtype: "Link", options: "Country", mandatory_depends_on: NEEDS_ADDRESS },
+            { label: __("City"), fieldname: "city", fieldtype: "Data" },
+            { label: __("Postal Code"), fieldname: "pincode", fieldtype: "Data" },
+            { label: __("Country"), fieldname: "country", fieldtype: "Link", options: "Country" },
         ];
     }
 
@@ -79,7 +81,16 @@ class AqrarCustomerQuickEntryForm extends frappe.ui.form.ContactAddressQuickEntr
         if (!doc.address_line1) {
             ["custom_building_number", "custom_area", "city", "pincode"].forEach((f) => delete doc[f]);
         }
-        return super.insert();
+        const missing = doc.custom_vat_registration_number && ADDRESS_FIELDS.some((f) => !doc[f]);
+        return super.insert().then((r) => {
+            if (missing) {
+                frappe.show_alert({
+                    message: __("Customer saved without a full national address. Invoices can be saved as draft, but cannot be submitted until the address is complete."),
+                    indicator: "orange",
+                }, 10);
+            }
+            return r;
+        });
     }
 }
 
