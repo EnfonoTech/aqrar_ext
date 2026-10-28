@@ -219,9 +219,6 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
 
     search() {
         var me = this;
-        // Only the latest search may draw: a slower, older response landing after a
-        // newer one would repaint the list with stale rows.
-        var seq = (this._seq = (this._seq || 0) + 1);
         var item_name_txt = (this.dialog.fields_dict.item_name_txt.get_value() || "").trim();
 
         // txt stays empty on purpose. The Item query matches txt against the code,
@@ -286,6 +283,11 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             return;
         }
         this._last_search_key = key;
+
+        // Only the latest search may draw: a slower, older response landing after a
+        // newer one would repaint the list with stale rows. Counted only for searches
+        // that actually run, or a skipped repeat would void the one still loading.
+        var seq = (this._seq = (this._seq || 0) + 1);
 
         frappe.link_search("Item", args, function (results) {
             if (seq !== me._seq) return;
