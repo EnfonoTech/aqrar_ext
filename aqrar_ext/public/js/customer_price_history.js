@@ -55,6 +55,11 @@ function update_all_last_prices(frm, config) {
 
     const item_codes = [...new Set(rows.map(row => row.item_code))];
 
+    // refresh fires on every save / reload: ask again only for a new party or item set.
+    const key = frm.doc[config.customer_field] + "|" + item_codes.slice().sort().join(",");
+    if (frm.__last_prices_key === key) return;
+    frm.__last_prices_key = key;
+
     frappe.call({
         method: "aqrar_ext.api.get_last_sold_prices",
         args: {

@@ -574,6 +574,54 @@ def remove_price_columns_from_other_documents():
 				frappe.delete_doc("Custom Field", name, force=True, ignore_permissions=True)
 
 
+def migrate_item_scope_fields():
+	"""Item access used to be one company + one cost center per Item
+	(custom_company / custom_cost_center), then a table of company / cost center pairs
+	(custom_item_scope). It is now two separate tables. Carry the values over, then
+	drop the earlier fields and the pair table."""
+	if not (
+		frappe.db.exists("DocType", "Item Access Company")
+		and frappe.db.exists("DocType", "Item Access Cost Center")
+	):
+		return
+
+	def add(parent, doctype, field, fieldname, value):
+		if not value or frappe.db.exists(doctype, {"parent": parent, "parenttype": "Item", fieldname: value}):
+			return
+		idx = frappe.db.count(doctype, {"parent": parent, "parenttype": "Item"}) + 1
+		frappe.get_doc(
+			{"doctype": doctype, "parent": parent, "parenttype": "Item", "parentfield": field, "idx": idx, fieldname: value}
+		).db_insert()
+
+	pairs = []
+	if frappe.db.exists("DocType", "Item Company Cost Center"):
+		pairs += frappe.db.sql(
+			"select parent, item_company, item_cost_center from `tabItem Company Cost Center` where parenttype = 'Item'"
+		)
+	has_company = frappe.db.has_column("Item", "custom_company")
+	has_cost_center = frappe.db.has_column("Item", "custom_cost_center")
+	if has_company or has_cost_center:
+		pairs += frappe.db.sql(
+			"select name, {0}, {1} from `tabItem`".format(
+				"custom_company" if has_company else "''", "custom_cost_center" if has_cost_center else "''"
+			)
+		)
+	for parent, company, cost_center in pairs:
+		add(parent, "Item Access Company", "custom_item_companies", "access_company", company)
+		add(parent, "Item Access Cost Center", "custom_item_cost_centers", "access_cost_center", cost_center)
+
+	for name in (
+		"Item-custom_company",
+		"Item-custom_cost_center",
+		"Item-custom_item_scope",
+		"Item-custom_item_scope_section",
+	):
+		if frappe.db.exists("Custom Field", name):
+			frappe.delete_doc("Custom Field", name, force=True, ignore_permissions=True)
+	if frappe.db.exists("DocType", "Item Company Cost Center"):
+		frappe.delete_doc("DocType", "Item Company Cost Center", force=True, ignore_permissions=True)
+
+
 def ensure_selling_price_editor_role():
 	"""Users with this role can edit the Standard / Wholesale price columns on
 	Purchase Invoice items (and so update Item Price on submit); others see them
@@ -635,6 +683,7 @@ def create():
 	ensure_price_override_role()
 	ensure_selling_price_editor_role()
 	remove_price_columns_from_other_documents()
+	migrate_item_scope_fields()
 	enforce_sales_person_permission_flag()
 	ensure_temporary_item_naming_series()
 	check_expected_modes_of_payment()
@@ -720,6 +769,92 @@ for _dt in (
 			"print_hide": 1,
 		}
 	)
+
+# Party balance on the header of sales and purchase documents, filled from the ledger
+# when the party is selected (public/js/party_balance.js, api/party_balance.py).
+for _dt, _label, _after in (
+	("Sales Invoice", "Customer Balance", "customer_name"),
+	("Delivery Note", "Customer Balance", "customer_name"),
+	("Sales Order", "Customer Balance", "customer_name"),
+	("Quotation", "Customer Balance", "customer_name"),
+	("Purchase Invoice", "Supplier Balance", "supplier_name"),
+	("Purchase Order", "Supplier Balance", "supplier_name"),
+	("Purchase Receipt", "Supplier Balance", "supplier_name"),
+):
+	CUSTOM_FIELDS.setdefault(_dt, []).append(
+		{
+			"fieldname": "custom_party_balance",
+			"label": _label,
+			"fieldtype": "Currency",
+			"insert_after": _after,
+			"read_only": 1,
+			"no_copy": 1,
+			"print_hide": 1,
+			"depends_on": "eval:doc.quotation_to=='Customer'" if _dt == "Quotation" else "",
+			"description": "Ledger balance as of the document date. Positive: the party owes you (debit). Negative: you owe the party (credit).",
+		}
+	)
+
+# Item access by company / cost centre (utils/item_access.py): the combinations an Item
+# belongs to (a table on the Item), and, on the User, the extra combinations they may reach.
+# The User table sits at permission level 1 so it is a System Manager's to edit, not
+# the restricted user's own.
+CUSTOM_FIELDS.setdefault("Item", []).extend(
+	[
+		{
+			"fieldname": "custom_item_access_section",
+			"label": "Company & Cost Center Access",
+			"fieldtype": "Section Break",
+			"insert_after": "uoms",
+			"description": "Who can see this Item. A user needs one of these companies AND one of these cost centers. An empty table means any.",
+		},
+		{
+			"fieldname": "custom_item_companies",
+			"label": "Companies",
+			"fieldtype": "Table",
+			"options": "Item Access Company",
+			"insert_after": "custom_item_access_section",
+			"no_copy": 1,
+		},
+		{
+			"fieldname": "custom_item_access_col",
+			"fieldtype": "Column Break",
+			"insert_after": "custom_item_companies",
+		},
+		{
+			"fieldname": "custom_item_cost_centers",
+			"label": "Cost Centers",
+			"fieldtype": "Table",
+			"options": "Item Access Cost Center",
+			"insert_after": "custom_item_access_col",
+			"no_copy": 1,
+		},
+	]
+)
+CUSTOM_FIELDS.setdefault("User", []).extend(
+	[
+		{
+			"fieldname": "custom_item_access_section",
+			"label": "Item Access",
+			"fieldtype": "Section Break",
+			"insert_after": "block_modules",
+			"permlevel": 1,
+			"description": (
+				"With no rows below, this user sees every Item. With rows, they see Items of their "
+				"default company / cost center plus each row here. A blank company or cost center "
+				"on a row means any; a row with both blank means every Item."
+			),
+		},
+		{
+			"fieldname": "custom_item_access",
+			"label": "Item Access Restrictions",
+			"fieldtype": "Table",
+			"options": "Item Access Restriction",
+			"insert_after": "custom_item_access_section",
+			"permlevel": 1,
+		},
+	]
+)
 
 CUSTOM_FIELDS.setdefault("Selling Settings", []).append(
 	{

@@ -47,6 +47,7 @@ app_include_js = [
 	f"/assets/aqrar_ext/js/return_qty_positive.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/item_price_columns.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/item_location_stock.js?v={_ASSET_V}",
+	f"/assets/aqrar_ext/js/party_balance.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/purchase_invoice_backdate_stock.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_branch_price_list.js?v={_ASSET_V}",
 	f"/assets/aqrar_ext/js/sales_invoice_row_price_list.js?v={_ASSET_V}",
@@ -130,6 +131,17 @@ _STOCK_TRANSFER_BACKDATE_NOTE_HOOK = (
 _STOCK_TRANSFER_COMPANY_HOOK = (
 	"aqrar_ext.aqrar_ext.utils.stock_transfer_backdate.validate_company_stock_transfer_backdate"
 )
+
+# Item access by company / cost centre. See utils/item_access.py.
+permission_query_conditions = {
+	"Item": "aqrar_ext.aqrar_ext.utils.item_access.item_permission_query",
+}
+has_permission = {
+	"Item": "aqrar_ext.aqrar_ext.utils.item_access.item_has_permission",
+}
+standard_queries = {
+	"Item": "aqrar_ext.aqrar_ext.utils.item_access.item_link_query",
+}
 
 doc_events = {
 	"Purchase Invoice": {
@@ -345,6 +357,12 @@ jenv = {
 		"aqrar_ext.aqrar_ext.utils.print_helpers.get_display_mode",
 	]
 }
+
+_events = doc_events.setdefault("Item", {})
+_before_insert = _events.get("before_insert") or []
+_events["before_insert"] = (
+	[_before_insert] if isinstance(_before_insert, str) else list(_before_insert)
+) + ["aqrar_ext.aqrar_ext.utils.item_access.set_item_defaults"]
 
 # Fill the read-only Valuation Rate column on item rows server-side too, so a
 # document made outside the form (API, import, script) doesn't save it empty.
