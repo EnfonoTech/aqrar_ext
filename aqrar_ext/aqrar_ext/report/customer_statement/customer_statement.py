@@ -1,5 +1,7 @@
 import frappe
 from frappe import _
+from frappe.core.doctype.user_permission.user_permission import get_permitted_documents
+from frappe.query_builder.functions import Sum
 from frappe.utils import flt, formatdate, getdate
 
 
@@ -29,19 +31,39 @@ def get_columns():
     ]
 
 
+def get_cost_centers(cost_center=None):
+    """Branches the statement covers: None = every branch (consolidated).
+
+    A branch user (User Permission on Cost Center) gets their own branches when
+    none is chosen, and is refused any other: this report reads documents with
+    get_all, which ignores User Permissions."""
+    from erpnext.accounts.report.financial_statements import get_cost_centers_with_children
+
+    permitted = get_permitted_documents("Cost Center")
+    if cost_center:
+        if permitted and cost_center not in permitted:
+            frappe.throw(
+                _("You are not allowed to print statements for {0}").format(cost_center),
+                frappe.PermissionError,
+            )
+        return get_cost_centers_with_children([cost_center])
+    return list(permitted) or None
+
+
 def get_data(filters):
     customer = filters.get("customer")
     company = filters.get("company")
     from_date = filters.get("from_date")
     to_date = filters.get("to_date")
     ageing_based_on = filters.get("ageing_based_on", "Posting Date")
+    cost_centers = get_cost_centers(filters.get("cost_center"))
 
     receivable_account = _get_receivable_account(customer, company)
-    opening = _get_opening_balance(customer, company, from_date, receivable_account)
+    opening = _get_opening_balance(customer, company, from_date, receivable_account, cost_centers)
     rows = []
 
     # Sales Invoices (non-return)
-    invoices = _get_sales_invoices(customer, company, from_date, to_date, is_return=0)
+    invoices = _get_sales_invoices(customer, company, from_date, to_date, is_return=0, cost_centers=cost_centers)
     paid_map = _get_paid_amounts([inv.name for inv in invoices])
     for inv in invoices:
         paid = flt(paid_map.get(inv.name))
@@ -61,7 +83,7 @@ def get_data(filters):
         })
 
     # Credit Notes (Sales Returns)
-    credit_notes = _get_sales_invoices(customer, company, from_date, to_date, is_return=1)
+    credit_notes = _get_sales_invoices(customer, company, from_date, to_date, is_return=1, cost_centers=cost_centers)
     for cn in credit_notes:
         rows.append({
             "posting_date": cn.posting_date,
@@ -76,7 +98,7 @@ def get_data(filters):
         })
 
     # Payment Entries
-    payments = _get_payment_entries(customer, company, from_date, to_date)
+    payments = _get_payment_entries(customer, company, from_date, to_date, cost_centers)
     for pe in payments:
         rows.append({
             "posting_date": pe.posting_date,
@@ -149,28 +171,38 @@ def _get_receivable_account(customer, company):
     return acc
 
 
-def _get_opening_balance(customer, company, from_date, receivable_account):
-    result = frappe.db.sql("""
-        SELECT SUM(debit) - SUM(credit)
-        FROM `tabGL Entry`
-        WHERE party_type = 'Customer'
-          AND party = %s
-          AND company = %s
-          AND account = %s
-          AND posting_date < %s
-          AND is_cancelled = 0
-    """, (customer, company, receivable_account, from_date))
+def _get_opening_balance(customer, company, from_date, receivable_account, cost_centers=None):
+    gle = frappe.qb.DocType("GL Entry")
+    query = (
+        frappe.qb.from_(gle)
+        .select(Sum(gle.debit) - Sum(gle.credit))
+        .where(
+            (gle.party_type == "Customer")
+            & (gle.party == customer)
+            & (gle.company == company)
+            & (gle.account == receivable_account)
+            & (gle.posting_date < from_date)
+            & (gle.is_cancelled == 0)
+        )
+    )
+    if cost_centers:
+        query = query.where(gle.cost_center.isin(cost_centers))
+    result = query.run()
     return flt(result[0][0]) if result and result[0][0] else 0.0
 
 
-def _get_sales_invoices(customer, company, from_date, to_date, is_return=0):
-    return frappe.db.get_all("Sales Invoice", filters={
+def _get_sales_invoices(customer, company, from_date, to_date, is_return=0, cost_centers=None):
+    filters = {
         "customer": customer,
         "company": company,
         "docstatus": 1,
         "is_return": is_return,
         "posting_date": ["between", [from_date, to_date]],
-    }, fields=["name", "posting_date", "due_date", "grand_total"], order_by="posting_date")
+    }
+    if cost_centers:
+        filters["cost_center"] = ["in", cost_centers]
+    return frappe.db.get_all("Sales Invoice", filters=filters,
+        fields=["name", "posting_date", "due_date", "grand_total"], order_by="posting_date")
 
 
 def _get_paid_amounts(invoice_names):
@@ -191,19 +223,23 @@ def _get_paid_amounts(invoice_names):
     return {r.invoice: flt(r.paid) for r in rows}
 
 
-def _get_payment_entries(customer, company, from_date, to_date):
-    return frappe.db.get_all("Payment Entry", filters={
+def _get_payment_entries(customer, company, from_date, to_date, cost_centers=None):
+    filters = {
         "party_type": "Customer",
         "party": customer,
         "company": company,
         "docstatus": 1,
         "posting_date": ["between", [from_date, to_date]],
         "payment_type": "Receive",
-    }, fields=["name", "posting_date", "paid_amount"], order_by="posting_date")
+    }
+    if cost_centers:
+        filters["cost_center"] = ["in", cost_centers]
+    return frappe.db.get_all("Payment Entry", filters=filters,
+        fields=["name", "posting_date", "paid_amount"], order_by="posting_date")
 
 
 @frappe.whitelist()
-def get_pdf(customer, company=None, from_date=None, to_date=None, ageing_based_on="Posting Date"):
+def get_pdf(customer, company=None, from_date=None, to_date=None, ageing_based_on="Posting Date", cost_center=None):
     """Generate statement PDF for download."""
     if not customer:
         frappe.throw(_("Customer is required"))
@@ -227,6 +263,7 @@ def get_pdf(customer, company=None, from_date=None, to_date=None, ageing_based_o
         "from_date": from_date,
         "to_date": to_date,
         "ageing_based_on": ageing_based_on,
+        "cost_center": cost_center,
     })
     _columns, data = execute(filters)
     if not data:
@@ -246,7 +283,7 @@ def get_pdf(customer, company=None, from_date=None, to_date=None, ageing_based_o
         customer_address = frappe.get_doc("Address", addr_name)
 
     aging = _get_aging(data, to_date, ageing_based_on)
-    vat = _get_vat_summary(customer, company, from_date, to_date)
+    vat = _get_vat_summary(customer, company, from_date, to_date, get_cost_centers(cost_center))
     vat_total_taxable = sum(flt(v.taxable_amount) for v in vat)
     vat_total_tax = sum(flt(v.tax_amount) for v in vat)
 
@@ -284,6 +321,7 @@ def get_pdf(customer, company=None, from_date=None, to_date=None, ageing_based_o
         "vat_total_taxable": vat_total_taxable,
         "vat_total_tax": vat_total_tax,
         "print_date": formatdate(frappe.utils.today()),
+        "branch": cost_center or ", ".join(get_cost_centers() or []),
     })
 
     from frappe.utils.pdf import get_pdf as _get_pdf
@@ -316,7 +354,7 @@ def _get_aging(rows, to_date, ageing_based_on):
     return buckets
 
 
-def _get_vat_summary(customer, company, from_date, to_date):
+def _get_vat_summary(customer, company, from_date, to_date, cost_centers=None):
     """Tax collected per rate, plus the net amount it was charged on.
 
     The taxable amount is de-duplicated per invoice first: joining the tax rows
@@ -341,6 +379,7 @@ def _get_vat_summary(customer, company, from_date, to_date):
               AND si.docstatus = 1
               AND si.is_return = 0
               AND stc.parenttype = 'Sales Invoice'
+              AND (%(all_branches)s OR si.cost_center IN %(cost_centers)s)
             GROUP BY stc.rate, stc.parent
         ) per_invoice
         GROUP BY per_invoice.rate
@@ -350,4 +389,6 @@ def _get_vat_summary(customer, company, from_date, to_date):
         "company": company,
         "from_date": from_date,
         "to_date": to_date,
+        "all_branches": 0 if cost_centers else 1,
+        "cost_centers": tuple(cost_centers or [""]),
     }, as_dict=True)

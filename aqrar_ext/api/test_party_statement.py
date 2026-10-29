@@ -10,6 +10,8 @@ from aqrar_ext.api.party_statement import (
 	download_party_statement_pdf,
 	english_address,
 	get_party_statement_html,
+	inline_site_images,
+	is_auto_remark,
 	money,
 	to_arabic_digits,
 )
@@ -176,6 +178,33 @@ class TestPartyStatement(FrappeTestCase):
 		self.assertEqual(ctx.ledger.closing_balance, -400)
 		html = frappe.render_template("aqrar_ext/templates/party_statement.html", ctx)
 		self.assertIn("400.00 Cr", html)
+		self.assertIn("Vendor Inv. No", html)
+		# Remarks is the last column, after Balance
+		self.assertLess(html.index("Balance<span"), html.index("Remarks<span"))
+
+	def test_customer_statement_has_no_vendor_invoice_column(self):
+		from_date, to_date = self.period()
+		html = get_party_statement_html("Customer", CUSTOMER, COMPANY, from_date, to_date)["html"]
+		self.assertNotIn("Vendor Inv. No", html)
+
+	def test_footer_uses_printed_company_name(self):
+		from_date, to_date = self.period()
+		names = {COMPANY: "Test Company For Trading"}
+		with patch("aqrar_ext.api.party_statement.COMPANY_PRINT_NAMES", names):
+			html = get_party_statement_html("Customer", CUSTOMER, COMPANY, from_date, to_date)["html"]
+		footer = html.split('class="note"', 1)[1]
+		self.assertIn("Test Company For Trading", footer)
+		self.assertNotIn(COMPANY, footer)
+
+	def test_only_typed_remarks_are_printed(self):
+		from_date, to_date = self.period()
+		ctx = build_context("Customer", CUSTOMER, COMPANY, from_date, to_date)
+		remarks = sorted(row.user_remark for row in ctx.ledger.entries)
+		# the Journal Entry's own user_remark, not ERPNext's "Note: ..." GL text
+		self.assertEqual(remarks, ["inside period debit", "inside period payment"])
+		html = frappe.render_template("aqrar_ext/templates/party_statement.html", ctx)
+		self.assertNotIn("Note:", html)
+		self.assertNotIn("Against:", html)
 
 	def test_default_period_is_current_month(self):
 		ctx = build_context("Customer", CUSTOMER, COMPANY)
@@ -276,6 +305,34 @@ class TestPartyStatement(FrappeTestCase):
 
 
 class TestStatementFormatting(FrappeTestCase):
+	def test_auto_remarks_are_recognised(self):
+		d = frappe._dict
+		self.assertTrue(is_auto_remark("Purchase Invoice", d(remarks="No Remarks", bill_no="")))
+		self.assertTrue(is_auto_remark("Purchase Invoice", d(remarks="Against Supplier Invoice 939", bill_no="939")))
+		self.assertTrue(
+			is_auto_remark("Purchase Invoice", d(remarks="Against Supplier Invoice 93945 dated 16-09-2026", bill_no="93945"))
+		)
+		self.assertTrue(is_auto_remark("Sales Invoice", d(remarks="Against Customer Order PO-7 dated 01-10-2026", po_no="PO-7")))
+		self.assertTrue(is_auto_remark("Sales Invoice", d(remarks="No Remarks", po_no=None)))
+		self.assertFalse(is_auto_remark("Purchase Invoice", d(remarks="Damaged goods returned", bill_no="939")))
+		self.assertFalse(is_auto_remark("Sales Invoice", d(remarks="Deliver to site 4", po_no="")))
+		self.assertFalse(is_auto_remark("Purchase Invoice", d(remarks="", bill_no="")))
+
+	def test_site_images_are_inlined(self):
+		import os
+
+		folder = frappe.get_site_path("public", "files")
+		os.makedirs(folder, exist_ok=True)
+		path = os.path.join(folder, "statement-test-logo.png")
+		with open(path, "wb") as fh:
+			fh.write(b"\x89PNG\r\n\x1a\n0000")
+		self.addCleanup(os.remove, path)
+
+		out = inline_site_images('<img src="http://example.com/files/statement-test-logo.png"><img src="/files/missing.png">')
+		self.assertIn('src="data:image/png;base64,', out)
+		self.assertIn('src="/files/missing.png"', out)  # unknown files left alone
+		self.assertEqual(inline_site_images('<img src="/files/../../site_config.json">'), '<img src="/files/../../site_config.json">')
+
 	def test_money_has_no_sign_and_two_decimals(self):
 		self.assertEqual(money(-1234.5), "1,234.50")
 		self.assertEqual(money(0), "0.00")
@@ -294,3 +351,70 @@ class TestStatementFormatting(FrappeTestCase):
 		}
 		self.assertEqual(english_address(address), "King Road, Bldg 12, Riyadh, Kingdom of Saudi Arabia")
 		self.assertIn("المملكة العربية السعودية", arabic_address(address))
+
+
+BRANCH_CUSTOMER = "Statement Test Branch Customer"
+
+
+class TestBranchStatement(FrappeTestCase):
+	"""Shameer 2026-10-29: a statement printed from a ledger filtered to one branch
+	must show that branch only; with no branch it is the consolidated statement."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		frappe.set_user("Administrator")
+		ensure_party("Customer", BRANCH_CUSTOMER)
+		cls.main_cc = frappe.get_cached_value("Company", COMPANY, "cost_center")
+		cls.other_cc = frappe.db.get_value(
+			"Cost Center", {"company": COMPANY, "is_group": 0, "name": ["!=", cls.main_cc]}
+		)
+		recent = add_days(today(), -5)
+		je = post_journal(recent, "Customer", BRANCH_CUSTOMER, RECEIVABLE, 100, "main branch")
+		cls.main_je = je.name
+		other = frappe.get_doc(
+			{
+				"doctype": "Journal Entry",
+				"voucher_type": "Journal Entry",
+				"company": COMPANY,
+				"posting_date": recent,
+				"user_remark": "other branch",
+				"accounts": [
+					{"account": RECEIVABLE, "party_type": "Customer", "party": BRANCH_CUSTOMER,
+						"debit_in_account_currency": 40, "cost_center": cls.other_cc},
+					{"account": BANK, "credit_in_account_currency": 40, "cost_center": cls.other_cc},
+				],
+			}
+		).insert(ignore_permissions=True)
+		other.submit()
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+
+	def context(self, dimensions=None):
+		return build_context("Customer", BRANCH_CUSTOMER, COMPANY, add_days(today(), -10), today(), dimensions)
+
+	def test_consolidated_has_every_branch(self):
+		ctx = self.context()
+		self.assertEqual(ctx.ledger.total_debit, 140)
+		self.assertEqual(ctx.scope, "")
+
+	def test_branch_statement_has_that_branch_only(self):
+		ctx = self.context({"cost_center": [self.main_cc]})
+		self.assertEqual(ctx.ledger.total_debit, 100)
+		self.assertEqual(ctx.scope, self.main_cc)
+		html = get_party_statement_html(
+			"Customer", BRANCH_CUSTOMER, COMPANY, add_days(today(), -10), today(),
+			frappe.as_json({"cost_center": [self.other_cc]}),
+		)["html"]
+		self.assertIn(self.other_cc, html)
+		self.assertNotIn(self.main_je, html)
+
+	def test_unknown_filters_are_dropped(self):
+		from aqrar_ext.api.party_statement import parse_dimensions
+
+		self.assertEqual(
+			parse_dimensions({"cost_center": self.main_cc, "party": ["X"], "project": [], "account": ["Y"]}),
+			{"cost_center": [self.main_cc]},
+		)
+		self.assertEqual(parse_dimensions('{"cost_center": ["A"], "bogus": ["B"]}'), {"cost_center": ["A"]})

@@ -453,7 +453,10 @@ VALUATION_RATE_CHILD_DOCTYPES = (
 # to total exactly 10 with the Stock button (and, on Purchase Invoice, the Standard /
 # Wholesale Price columns); columns that no longer fit are taken out of the list view.
 VALUATION_GRID_WIDTHS = {
-	"Sales Invoice Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
+	# Shameer 2026-10-29: the cost ("Incoming Rate") must show while items are typed.
+	# Item name, UOM and Location Stock are what the front desk reads, so the row's
+	# price list and price list rate move into the row form to make room.
+	"Sales Invoice Item": {"item_code": 1, "item_name": 2, "qty": 1, "uom": 1, "rate": 1, "custom_valuation_rate": 1, "custom_view_stock": 1, "actual_qty": 1, "amount": 1},
 	"Quotation Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
 	"Sales Order Item": {"item_code": 2, "custom_price_list": 1, "qty": 1, "price_list_rate": 1, "rate": 2, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
 	"Delivery Note Item": {"item_code": 3, "custom_price_list": 2, "qty": 1, "price_list_rate": 1, "custom_valuation_rate": 1, "custom_view_stock": 1, "amount": 1},
@@ -464,6 +467,9 @@ VALUATION_GRID_WIDTHS = {
 	"Payment Entry Reference": {"reference_doctype": 1, "reference_name": 2, "total_amount": 2, "outstanding_amount": 2, "allocated_amount": 2, "custom_allocate": 1},
 }
 VALUATION_GRID_HIDDEN = {
+	# incoming_rate is ERPNext's, filled only on save; custom_valuation_rate shows the
+	# same FIFO cost live.
+	"Sales Invoice Item": ("custom_price_list", "price_list_rate", "incoming_rate"),
 	"Sales Order Item": ("delivery_date",),
 	"Purchase Invoice Item": ("price_list_rate",),
 	"Purchase Order Item": ("uom",),
@@ -478,9 +484,10 @@ def ensure_valuation_rate_grid_widths():
 	for doctype, widths in VALUATION_GRID_WIDTHS.items():
 		if not frappe.db.exists("DocType", doctype):
 			continue
-		props = [(f, "in_list_view", 0, "Check") for f in VALUATION_GRID_HIDDEN.get(doctype, ())]
-		if "price_list_rate" in widths:
-			props.append(("price_list_rate", "in_list_view", 1, "Check"))
+		hidden = VALUATION_GRID_HIDDEN.get(doctype, ())
+		props = [(f, "in_list_view", 0, "Check") for f in hidden]
+		# every sized column is a list-view column (standard fields may not be by default)
+		props += [(f, "in_list_view", 1, "Check") for f in widths if f not in hidden]
 		props += [(f, "columns", w, "Int") for f, w in widths.items()]
 		for fieldname, prop, value, ptype in props:
 			if frappe.db.exists(
@@ -613,6 +620,27 @@ def undo_price_override_on_minimum_price():
 	if frappe.db.exists("Custom Field", name):
 		frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)
 	frappe.clear_cache()
+
+
+# What each grid calls custom_valuation_rate, where the client's word differs.
+VALUATION_RATE_LABELS = {"Sales Invoice Item": "Incoming Rate"}
+
+
+def ensure_valuation_rate_labels():
+	for doctype, label in VALUATION_RATE_LABELS.items():
+		if not frappe.get_meta(doctype).get_field("custom_valuation_rate"):
+			continue
+		frappe.make_property_setter(
+			{
+				"doctype": doctype,
+				"fieldname": "custom_valuation_rate",
+				"property": "label",
+				"value": label,
+				"property_type": "Data",
+			},
+			is_system_generated=True,
+		)
+		frappe.clear_cache(doctype=doctype)
 
 
 LOCATION_STOCK_DOCTYPES = ("Sales Invoice Item", "Delivery Note Item", "Quotation Item", "Sales Order Item")
@@ -759,6 +787,7 @@ def create():
 	"""Entry point for hooks.after_migrate."""
 	ensure_custom_fields()
 	ensure_valuation_rate_grid_widths()
+	ensure_valuation_rate_labels()
 	ensure_location_stock_label()
 	ensure_customer_po_on_header()
 	ensure_customer_form_order()

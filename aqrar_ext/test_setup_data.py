@@ -135,3 +135,32 @@ class TestMaterialRequestPrint(FrappeTestCase):
 			self.assertIn(heading, html)
 		self.assertNotIn("Rate", html.split('class="mr-wrap"', 1)[1])
 		self.assertIn(item, html)
+
+
+class TestSalesInvoiceGridFits(FrappeTestCase):
+	"""Shameer 2026-10-29: the cost column must be drawn. Frappe draws list-view
+	columns only while their widths add up to 10."""
+
+	def test_patch_overrides_hand_set_widths(self):
+		from aqrar_ext.patches import sales_invoice_grid_incoming_rate as patch_module
+
+		frappe.make_property_setter(
+			{"doctype": "Sales Invoice Item", "fieldname": "item_name", "property": "columns",
+				"value": 3, "property_type": "Int"},
+			is_system_generated=False,
+		)
+		frappe.make_property_setter(
+			{"doctype": "Sales Invoice Item", "fieldname": "incoming_rate", "property": "in_list_view",
+				"value": 1, "property_type": "Check"},
+			is_system_generated=False,
+		)
+		patch_module.execute()
+		frappe.clear_cache(doctype="Sales Invoice Item")
+		meta = frappe.get_meta("Sales Invoice Item")
+		shown = [df for df in meta.fields if df.in_list_view and not df.hidden]
+		self.assertLessEqual(sum(df.columns or 0 for df in shown), 10)
+		names = [df.fieldname for df in shown]
+		for fieldname in ("custom_valuation_rate", "amount", "actual_qty", "rate", "qty"):
+			self.assertIn(fieldname, names)
+		self.assertNotIn("incoming_rate", names)
+		self.assertEqual(meta.get_field("custom_valuation_rate").label, "Incoming Rate")

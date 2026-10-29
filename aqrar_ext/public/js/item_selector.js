@@ -165,8 +165,21 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
 
     // Shows what's already in the invoice grid so far, right inside this
     // popup — refreshed after every "+" click.
+    // Tick every result row whose item is already in the grid.
+    mark_added_rows($scope) {
+        var me = this;
+        var added = {};
+        (me.target.frm.doc[me.target.df.fieldname] || []).forEach(function (d) {
+            if (d[me.item_field]) added[d[me.item_field]] = true;
+        });
+        ($scope || this.dialog.fields_dict.results_area.$wrapper).find(".item-selector-row").each(function () {
+            $(this).find(".item-added-tick").toggle(!!added[$(this).data("aqrar-item")]);
+        });
+    }
+
     render_added_items() {
         var me = this;
+        this.mark_added_rows();
         var $wrap = this.dialog.fields_dict.results_area.$wrapper.find(".aqrar-added-items-bar");
         var rows = (me.target.frm.doc[me.target.df.fieldname] || []).filter(function (d) {
             return d[me.item_field];
@@ -384,6 +397,9 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                             ' title="' + __("Add") + '" style="border-radius:50%; width:24px; height:24px; padding:0;">' +
                             '+' +
                         '</button>' +
+                        // Shameer 2026-10-29: show which items are already in the grid.
+                        '<span class="item-added-tick text-success" title="' + __("Already added") + '"' +
+                            ' style="display:none; margin-left:6px; font-size:16px; font-weight:bold;">&#10004;</span>' +
                     '</span>' +
                 '</div>'
             ).appendTo($stage);
@@ -432,6 +448,8 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                 });
             });
         });
+
+        this.mark_added_rows($stage);
 
         // Load More keeps the stock of the pages already on screen.
         if (!append || !this.stock_map) this.stock_map = {};

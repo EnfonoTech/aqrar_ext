@@ -17,7 +17,7 @@ import re
 import frappe
 from frappe import _
 from frappe.core.doctype.user_permission.user_permission import get_permitted_documents
-from frappe.utils import flt, formatdate, get_first_day, getdate, today
+from frappe.utils import cstr, flt, formatdate, get_first_day, getdate, today
 
 TEMPLATE = "aqrar_ext/templates/party_statement.html"
 PARTY_TYPES = ("Customer", "Supplier")
@@ -196,8 +196,13 @@ def letter_head_block(company):
 	return letter_head or frappe._dict()
 
 
-def get_ledger(party_type, party, company, from_date, to_date):
-	"""Rows of the General Ledger for one party, split into opening / entries / closing."""
+def get_ledger(party_type, party, company, from_date, to_date, dimensions=None):
+	"""Rows of the General Ledger for one party, split into opening / entries / closing.
+
+	`dimensions` ({"cost_center": [...], "project": [...], <accounting dimension>: [...]})
+	narrows the ledger the way the General Ledger's own filters do, so a statement
+	printed from a ledger filtered to one branch shows that branch only.
+	"""
 	from erpnext.accounts.report.general_ledger.general_ledger import execute
 
 	filters = frappe._dict(
@@ -208,6 +213,7 @@ def get_ledger(party_type, party, company, from_date, to_date):
 		party=[party],
 		categorize_by="Categorize by Voucher (Consolidated)",
 		show_remarks=1,
+		**(dimensions or {}),
 	)
 	_columns, data = execute(filters)
 
@@ -223,6 +229,10 @@ def get_ledger(party_type, party, company, from_date, to_date):
 			continue  # the report's own totals row; recomputed below
 		elif row.get("voucher_no"):
 			entries.append(row)
+
+	typed = user_remarks(entries)
+	for row in entries:
+		row["user_remark"] = typed.get((row.get("voucher_type"), row.get("voucher_no")), "")
 
 	total_debit = sum(flt(row.get("debit")) for row in entries)
 	total_credit = sum(flt(row.get("credit")) for row in entries)
@@ -241,6 +251,72 @@ def get_ledger(party_type, party, company, from_date, to_date):
 		total_credit=total_credit,
 		closing_balance=closing_balance,
 	)
+
+
+# Where each voucher type keeps the remark a user types, and what else decides it.
+REMARK_SOURCES = {
+	"Purchase Invoice": ["remarks", "bill_no"],
+	"Sales Invoice": ["remarks", "po_no"],
+	"Payment Entry": ["remarks", "custom_remarks"],
+	"Journal Entry": ["user_remark"],
+}
+
+
+def is_auto_remark(voucher_type, doc):
+	"""True when `doc.remarks` is the text ERPNext wrote because the user left it empty.
+
+	Purchase Invoice: "Against Supplier Invoice <bill_no>[ dated <date>]" or "No Remarks".
+	Sales Invoice: "Against Customer Order <po_no>[ dated <date>]" or "No Remarks".
+	The date part is formatted with the date format of the day it was saved, so
+	match on the prefix, not on a rebuilt string.
+	"""
+	text = plain(doc.get("remarks"))
+	if not text:
+		return False
+	if text == plain(_("No Remarks")):
+		return True
+	ref_field, sentence = AUTO_REMARK_SENTENCE.get(voucher_type, (None, None))
+	ref = plain(doc.get(ref_field)) if ref_field else ""
+	# Only when the reference is the one on the document: "Against Supplier Invoice"
+	# typed by hand about a different bill is a remark the user wrote.
+	return bool(ref) and text.startswith(plain(_(sentence).replace("{0}", ref)))
+
+
+# The sentence ERPNext writes into an empty `remarks`, and the field it quotes.
+AUTO_REMARK_SENTENCE = {
+	"Purchase Invoice": ("bill_no", "Against Supplier Invoice {0}"),
+	"Sales Invoice": ("po_no", "Against Customer Order {0}"),
+}
+
+
+def user_remarks(entries):
+	"""{(voucher_type, voucher_no): remark} with only the remarks a user typed.
+
+	The General Ledger's own remarks column carries what ERPNext generates when the
+	field is left empty ("No Remarks", "Against Supplier Invoice ...", "Amount SAR
+	... received from ..."), which the client does not want on the statement.
+	"""
+	names = {}
+	for row in entries:
+		names.setdefault(row.get("voucher_type"), set()).add(row.get("voucher_no"))
+
+	remarks = {}
+	for voucher_type, voucher_nos in names.items():
+		fields = REMARK_SOURCES.get(voucher_type)
+		if not fields:
+			continue
+		for doc in frappe.get_all(
+			voucher_type, filters={"name": ["in", list(voucher_nos)]}, fields=["name", *fields]
+		):
+			if voucher_type == "Journal Entry":
+				text = doc.user_remark
+			elif voucher_type == "Payment Entry":
+				text = doc.remarks if doc.custom_remarks else ""
+			else:
+				text = "" if is_auto_remark(voucher_type, doc) else doc.remarks
+			if plain(text):
+				remarks[(voucher_type, doc.name)] = plain(text)
+	return remarks
 
 
 def validate_request(party_type, party, company, from_date, to_date):
@@ -279,25 +355,68 @@ def check_company_allowed(company):
 		frappe.throw(_("You are not allowed to print statements for {0}").format(company), frappe.PermissionError)
 
 
-def build_context(party_type, party, company, from_date=None, to_date=None):
+def dimension_fieldnames():
+	"""Ledger filters a statement may carry: cost center, project and the site's
+	enabled accounting dimensions (Branch on Aqrar)."""
+	from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
+		get_accounting_dimensions,
+	)
+
+	names = ["cost_center", "project"]
+	for dimension in get_accounting_dimensions(as_list=False):
+		if not dimension.disabled and dimension.document_type != "Finance Book":
+			names.append(dimension.fieldname)
+	return names
+
+
+def parse_dimensions(dimensions):
+	"""{fieldname: [values]} with unknown keys and empty values dropped.
+
+	Comes from the browser, so only known ledger fields pass: anything else would
+	go straight into the General Ledger's filters."""
+	if not dimensions:
+		return {}
+	if isinstance(dimensions, str):
+		dimensions = frappe.parse_json(dimensions)
+	allowed = dimension_fieldnames()
+	clean = {}
+	for fieldname, values in (dimensions or {}).items():
+		if fieldname not in allowed or not values:
+			continue
+		values = [cstr(v) for v in (values if isinstance(values, (list, tuple)) else [values]) if cstr(v)]
+		if values:
+			clean[fieldname] = values
+	return clean
+
+
+def scope_label(dimensions):
+	""""Warehouse Branch - SAT" for a branch statement, "" for the consolidated one."""
+	return ", ".join(", ".join(values) for values in dimensions.values())
+
+
+def build_context(party_type, party, company, from_date=None, to_date=None, dimensions=None):
 	# The General Ledger compares the two dates, so both must be the same type.
 	from_date = str(getdate(from_date or get_first_day(today())))
 	to_date = str(getdate(to_date or today()))
 	validate_request(party_type, party, company, from_date, to_date)
+	dimensions = parse_dimensions(dimensions)
 
 	company_info = company_block(company)
-	ledger = get_ledger(party_type, party, company, from_date, to_date)
+	ledger = get_ledger(party_type, party, company, from_date, to_date, dimensions)
 
 	return frappe._dict(
 		party_type=party_type,
+		show_bill_no=party_type == "Supplier",
 		party_label_en=_("Supplier") if party_type == "Supplier" else _("Customer"),
 		party_label_ar="المورد" if party_type == "Supplier" else "العميل",
 		party=party_block(party_type, party),
 		company=company_info,
 		letter_head=letter_head_block(company),
-		company_name=company,
+		# Footer name: the printed company name from the header, not the record ID.
+		company_name=company_info.name,
 		currency=company_info.currency,
 		period=formatdate(from_date) + " — " + formatdate(to_date),
+		scope=scope_label(dimensions),
 		generated_on=formatdate(today()),
 		ledger=ledger,
 		money=money,
@@ -307,10 +426,37 @@ def build_context(party_type, party, company, from_date=None, to_date=None):
 	)
 
 
+def inline_site_images(html_text):
+	"""Put the site's own public images (the letter head) into the page as data URIs.
+
+	get_pdf() turns "/files/header.png" into "<site url>/files/header.png" and
+	wkhtmltopdf then fetches it over HTTP. On prod the site URL is the site name,
+	aqrar.enfonoerp.com, which resolves to the DEV box -- so every PDF waited on
+	another server, and took over a minute whenever that box was slow. Reading the
+	file from disk removes the network round trip altogether.
+	"""
+	import base64
+	import mimetypes
+	import os
+
+	public = os.path.realpath(frappe.get_site_path("public", "files"))
+
+	def replace(match):
+		path = os.path.realpath(os.path.join(public, match.group(2)))
+		mime = mimetypes.guess_type(path)[0] or ""
+		if not path.startswith(public + os.sep) or not mime.startswith("image/") or not os.path.isfile(path):
+			return match.group(0)
+		with open(path, "rb") as fh:
+			data = base64.b64encode(fh.read()).decode()
+		return f"{match.group(1)}data:{mime};base64,{data}{match.group(3)}"
+
+	return re.sub(r"""(src=["'])(?:https?://[^/"']+)?/files/([^"'?#]+)(["'])""", replace, html_text)
+
+
 @frappe.whitelist()
-def get_party_statement_html(party_type, party, company, from_date=None, to_date=None):
+def get_party_statement_html(party_type, party, company, from_date=None, to_date=None, dimensions=None):
 	"""The finished statement page, ready to print."""
-	context = build_context(party_type, party, company, from_date, to_date)
+	context = build_context(party_type, party, company, from_date, to_date, dimensions)
 	return {
 		"html": frappe.render_template(TEMPLATE, context),
 		"filename": "Statement_" + party_type + "_" + frappe.scrub(party),
@@ -318,12 +464,12 @@ def get_party_statement_html(party_type, party, company, from_date=None, to_date
 
 
 @frappe.whitelist()
-def download_party_statement_pdf(party_type, party, company, from_date=None, to_date=None):
+def download_party_statement_pdf(party_type, party, company, from_date=None, to_date=None, dimensions=None):
 	"""The same page as a PDF download."""
 	from frappe.utils.pdf import get_pdf
 
-	context = build_context(party_type, party, company, from_date, to_date)
-	html = frappe.render_template(TEMPLATE, context)
+	context = build_context(party_type, party, company, from_date, to_date, dimensions)
+	html = inline_site_images(frappe.render_template(TEMPLATE, context))
 
 	frappe.local.response.filename = "Statement_" + party_type + "_" + frappe.scrub(party) + ".pdf"
 	frappe.local.response.filecontent = get_pdf(html, {"orientation": "Portrait", "page-size": "A4"})

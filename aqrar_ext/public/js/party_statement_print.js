@@ -17,6 +17,8 @@ function statement_args(values) {
         company: values.company,
         from_date: values.from_date,
         to_date: values.to_date,
+        // Cost center / project / branch: the server keeps only real ledger fields.
+        dimensions: JSON.stringify(values.dimensions || {}),
     };
 }
 
@@ -96,22 +98,36 @@ function open_statement_dialog(party_type, party) {
             },
             { fieldtype: "Date", fieldname: "from_date", label: __("From Date"), reqd: 1, default: frappe.datetime.month_start() },
             { fieldtype: "Date", fieldname: "to_date", label: __("To Date"), reqd: 1, default: frappe.datetime.get_today() },
+            {
+                fieldtype: "Link",
+                fieldname: "cost_center",
+                label: __("Branch (Cost Center)"),
+                options: "Cost Center",
+                description: __("Empty: all branches together."),
+                get_query: () => ({ filters: { company: dialog.get_value("company"), is_group: 0 } }),
+            },
         ],
         primary_action_label: __("Print"),
         primary_action(values) {
             if (!valid_period(values)) return;
             dialog.hide();
-            print_statement(Object.assign({ party_type: party_type, party: party }, values));
+            print_statement(with_branch(party_type, party, values));
         },
         secondary_action_label: __("Download PDF"),
         secondary_action() {
             const values = dialog.get_values();
             if (!values || !valid_period(values)) return;
             dialog.hide();
-            download_statement(Object.assign({ party_type: party_type, party: party }, values));
+            download_statement(with_branch(party_type, party, values));
         },
     });
     dialog.show();
+}
+
+function with_branch(party_type, party, values) {
+    return Object.assign({ party_type: party_type, party: party }, values, {
+        dimensions: values.cost_center ? { cost_center: [values.cost_center] } : {},
+    });
 }
 
 function add_form_button(frm, party_type) {
@@ -128,6 +144,8 @@ frappe.ui.form.on("Supplier", { refresh: function (frm) { add_form_button(frm, "
 
 // General Ledger report: print the statement for the party already chosen in the
 // filters, no dialog.
+const LEDGER_OWN_FILTERS = ["company", "from_date", "to_date", "party_type", "party", "party_name", "account", "voucher_no", "group_by", "categorize_by", "presentation_currency", "finance_book", "include_dimensions", "show_opening_entries", "show_remarks", "show_cancelled_entries", "show_net_values_in_party_account", "add_values_in_transaction_currency", "include_default_book_entries", "ignore_err", "ignore_cr_dr_notes", "against_voucher_no"];
+
 function ledger_values(report) {
     const filters = report.get_filter_values ? report.get_filter_values() : {};
     let party = filters.party;
@@ -148,12 +166,22 @@ function ledger_values(report) {
         return null;
     }
 
+    // Everything else the ledger is filtered by (cost center, project, branch...)
+    // so the statement shows the same rows; the server drops non-ledger keys.
+    const dimensions = {};
+    Object.keys(filters).forEach(function (key) {
+        if (LEDGER_OWN_FILTERS.indexOf(key) === -1 && filters[key] && filters[key].length !== 0) {
+            dimensions[key] = filters[key];
+        }
+    });
+
     const values = {
         party_type: filters.party_type,
         party: party,
         company: filters.company,
         from_date: filters.from_date,
         to_date: filters.to_date,
+        dimensions: dimensions,
     };
     return valid_period(values) ? values : null;
 }

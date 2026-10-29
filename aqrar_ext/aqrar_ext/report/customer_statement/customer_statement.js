@@ -30,6 +30,13 @@ frappe.query_reports["Customer Statement"] = {
             default: frappe.datetime.month_end(),
         },
         {
+            fieldname: "cost_center",
+            label: __("Branch (Cost Center)"),
+            fieldtype: "Link",
+            options: "Cost Center",
+            get_query: () => ({ filters: { company: frappe.query_report.get_filter_value("company"), is_group: 0 } }),
+        },
+        {
             fieldname: "ageing_based_on",
             label: __("Ageing Based On"),
             fieldtype: "Select",

@@ -76,6 +76,7 @@
     <p style="text-align: center; font-size: 10pt; margin-bottom: 16px;">
         <strong>{{ _("Period") }}:</strong>
         {{ frappe.utils.formatdate(from_date) }} &mdash; {{ frappe.utils.formatdate(to_date) }}
+        {% if branch %}<br><strong>{{ _("Branch") }}:</strong> {{ branch | e }}{% endif %}
     </p>
 
     <!-- SUMMARY -->

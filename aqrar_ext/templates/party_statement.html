@@ -67,7 +67,7 @@
 
 <table class="hdr"><tr>
 	<td class="en">{{ _("Party Statement") }}</td>
-	<td class="period"><strong>{{ _("Period") }}:</strong> {{ period | e }}</td>
+	<td class="period"><strong>{{ _("Period") }}:</strong> {{ period | e }}{% if scope %}<br><strong>{{ _("Branch") }} / الفرع:</strong> {{ scope | e }}{% endif %}</td>
 	<td class="ar">كشف حساب</td>
 </tr></table>
 
@@ -88,39 +88,42 @@
 <table>
 	<thead>
 		<tr>
-			<th style="width:78px;">Date<span class="ar">التاريخ</span></th>
+			<th style="width:72px;">Date<span class="ar">التاريخ</span></th>
+			{% if show_bill_no %}<th style="width:92px;">Vendor Inv. No<span class="ar">رقم فاتورة المورد</span></th>{% endif %}
 			<th style="width:120px;">Reference<span class="ar">المرجع</span></th>
-			<th>Remarks<span class="ar">البيان</span></th>
 			<th class="r" style="width:78px;">Debit<span class="ar">مدين</span></th>
 			<th class="r" style="width:78px;">Credit<span class="ar">دائن</span></th>
 			<th class="r" style="width:92px;">Balance<span class="ar">الرصيد</span></th>
+			<th>Remarks<span class="ar">البيان</span></th>
 		</tr>
 	</thead>
 	<tbody>
+		{% set lead = 3 if show_bill_no else 2 %}
 		{% if ledger.opening %}
 		<tr class="open">
-			<td></td><td colspan="2">Opening Balance</td>
+			<td colspan="{{ lead }}">Opening Balance</td>
 			<td class="r">{% if ledger.opening.debit %}{{ money(ledger.opening.debit) }}{% endif %}</td>
 			<td class="r">{% if ledger.opening.credit %}{{ money(ledger.opening.credit) }}{% endif %}</td>
 			<td class="r">{{ money(ledger.opening_balance) }} {{ dr_cr(ledger.opening_balance) }}</td>
+			<td></td>
 		</tr>
 		{% endif %}
 		{% for t in ledger.entries %}
 		{% set ref_label = (t.voucher_subtype or t.voucher_type or "") %}
-		{% set against = plain(t.against_voucher) %}
-		{% set remark = plain(t.remarks) %}
 		<tr>
 			<td>{{ date(t.posting_date) }}</td>
+			{% if show_bill_no %}<td>{{ plain(t.bill_no) | e }}</td>{% endif %}
 			<td class="ref"><b>{{ ref_label | e }}</b><span>{{ t.voucher_no | e }}</span></td>
-			<td class="rem">{{ remark | e }}{% if against and against != t.voucher_no %}{% if remark %}<br>{% endif %}<span class="muted">Against: {{ against | e }}</span>{% endif %}</td>
 			<td class="r">{% if t.debit %}{{ money(t.debit) }}{% else %}<span class="muted">-</span>{% endif %}</td>
 			<td class="r">{% if t.credit %}{{ money(t.credit) }}{% else %}<span class="muted">-</span>{% endif %}</td>
 			<td class="r"><strong>{{ money(t.balance) }}</strong> {{ dr_cr(t.balance) }}</td>
+			<td class="rem">{{ t.user_remark | e }}</td>
 		</tr>
 		{% endfor %}
 		<tr class="close">
-			<td></td><td colspan="2">Closing Balance</td><td></td><td></td>
+			<td colspan="{{ lead }}">Closing Balance</td><td></td><td></td>
 			<td class="r">{{ money(ledger.closing_balance) }} {{ dr_cr(ledger.closing_balance) }}</td>
+			<td></td>
 		</tr>
 	</tbody>
 </table>
