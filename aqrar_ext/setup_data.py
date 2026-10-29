@@ -477,6 +477,19 @@ VALUATION_GRID_HIDDEN = {
 }
 
 
+# Grids where the layout above is the whole list view, not just a set of widths.
+VALUATION_GRID_EXCLUSIVE = ("Sales Invoice Item",)
+
+
+def other_list_view_fields(doctype, widths, hidden=()):
+	frappe.clear_cache(doctype=doctype)
+	return [
+		df.fieldname
+		for df in frappe.get_meta(doctype).fields
+		if df.in_list_view and df.fieldname not in widths and df.fieldname not in hidden
+	]
+
+
 def ensure_valuation_rate_grid_widths():
 	"""Size each item grid's columns so they all fit.
 	A width an implementer set by hand (a non-system-generated Property Setter) is
@@ -484,7 +497,11 @@ def ensure_valuation_rate_grid_widths():
 	for doctype, widths in VALUATION_GRID_WIDTHS.items():
 		if not frappe.db.exists("DocType", doctype):
 			continue
-		hidden = VALUATION_GRID_HIDDEN.get(doctype, ())
+		hidden = tuple(VALUATION_GRID_HIDDEN.get(doctype, ()))
+		if doctype in VALUATION_GRID_EXCLUSIVE:
+			# the layout owns the whole grid: any other list-view column (another
+			# app's, or one set by hand) would push the sized ones off the end
+			hidden += tuple(other_list_view_fields(doctype, widths, hidden))
 		props = [(f, "in_list_view", 0, "Check") for f in hidden]
 		# every sized column is a list-view column (standard fields may not be by default)
 		props += [(f, "in_list_view", 1, "Check") for f in widths if f not in hidden]

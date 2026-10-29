@@ -154,6 +154,12 @@ class TestSalesInvoiceGridFits(FrappeTestCase):
 				"value": 1, "property_type": "Check"},
 			is_system_generated=False,
 		)
+		# another column in the list view (dev: posa_is_offer, warehouse) is taken out
+		frappe.make_property_setter(
+			{"doctype": "Sales Invoice Item", "fieldname": "warehouse", "property": "in_list_view",
+				"value": 1, "property_type": "Check"},
+			is_system_generated=False,
+		)
 		patch_module.execute()
 		frappe.clear_cache(doctype="Sales Invoice Item")
 		meta = frappe.get_meta("Sales Invoice Item")
@@ -163,4 +169,6 @@ class TestSalesInvoiceGridFits(FrappeTestCase):
 		for fieldname in ("custom_valuation_rate", "amount", "actual_qty", "rate", "qty"):
 			self.assertIn(fieldname, names)
 		self.assertNotIn("incoming_rate", names)
+		self.assertNotIn("warehouse", names)
+		self.assertEqual(set(names), set(setup_data.VALUATION_GRID_WIDTHS["Sales Invoice Item"]))
 		self.assertEqual(meta.get_field("custom_valuation_rate").label, "Incoming Rate")

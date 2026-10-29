@@ -17,7 +17,9 @@ DOCTYPE = "Sales Invoice Item"
 
 
 def owned_fields():
-	return set(setup_data.VALUATION_GRID_WIDTHS[DOCTYPE]) | set(setup_data.VALUATION_GRID_HIDDEN[DOCTYPE])
+	widths = setup_data.VALUATION_GRID_WIDTHS[DOCTYPE]
+	hidden = setup_data.VALUATION_GRID_HIDDEN[DOCTYPE]
+	return set(widths) | set(hidden) | set(setup_data.other_list_view_fields(DOCTYPE, widths, hidden))
 
 
 def execute():
