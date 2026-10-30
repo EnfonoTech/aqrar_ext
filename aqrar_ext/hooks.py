@@ -143,6 +143,8 @@ _STOCK_TRANSFER_COMPANY_HOOK = (
 before_request = ["aqrar_ext.aqrar_ext.utils.ledger_summary_filters.normalize_party_filter"]
 
 doc_events = {
+	# Riyal font from the app, not the CDN: wkhtmltopdf stalls on the CDN for ~2 min.
+	"Print Format": {"before_save": "aqrar_ext.aqrar_ext.utils.local_fonts.localise_print_format"},
 	"Purchase Invoice": {
 		"before_validate": [_AUTO_GRN_NO_UPDATE_STOCK_HOOK, _RETURN_QTY_HOOK, _RETURN_UOM_HOOK],
 		"validate": _COST_CENTER_HOOK,
@@ -227,6 +229,8 @@ doc_events = {
 override_whitelisted_methods = {
 	"frappe.printing.page.print.print.get_print_settings_to_show": "aqrar_ext.api.print_utils.get_print_settings_to_show",
 	"erpnext.stock.doctype.delivery_note.delivery_note.make_sales_invoice": "aqrar_ext.overrides.delivery_note.make_sales_invoice",
+	# Get Items From -> Sales Order: map_docs passes args 3rd; ERPNext 15.89/15.93 expects it 4th.
+	"erpnext.selling.doctype.sales_order.sales_order.make_sales_invoice": "aqrar_ext.overrides.sales_order.make_sales_invoice",
 }
 
 # Fixtures
