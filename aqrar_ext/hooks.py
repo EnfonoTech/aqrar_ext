@@ -143,6 +143,8 @@ _STOCK_TRANSFER_COMPANY_HOOK = (
 before_request = ["aqrar_ext.aqrar_ext.utils.ledger_summary_filters.normalize_party_filter"]
 
 doc_events = {
+	# Riyal font from the app, not the CDN: wkhtmltopdf stalls on the CDN for ~2 min.
+	"Print Format": {"before_save": "aqrar_ext.aqrar_ext.utils.local_fonts.localise_print_format"},
 	"Purchase Invoice": {
 		"before_validate": [_AUTO_GRN_NO_UPDATE_STOCK_HOOK, _RETURN_QTY_HOOK, _RETURN_UOM_HOOK],
 		"validate": _COST_CENTER_HOOK,
