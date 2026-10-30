@@ -32,6 +32,14 @@ function show_statement_dialog(frm) {
                 reqd: 1,
                 default: frappe.datetime.month_end(),
             },
+            {
+                fieldtype: "Link",
+                fieldname: "cost_center",
+                label: __("Branch (Cost Center)"),
+                options: "Cost Center",
+                description: __("Empty: all branches together."),
+                get_query: () => ({ filters: { company: frappe.defaults.get_user_default("Company"), is_group: 0 } }),
+            },
         ],
         primary_action_label: __("Download PDF"),
         primary_action(values) {
@@ -48,7 +56,8 @@ function show_statement_dialog(frm) {
                 "&from_date=" +
                 encodeURIComponent(from_date) +
                 "&to_date=" +
-                encodeURIComponent(to_date);
+                encodeURIComponent(to_date) +
+                (values.cost_center ? "&cost_center=" + encodeURIComponent(values.cost_center) : "");
             window.open(url);
         },
         secondary_action_label: __("View Report"),
@@ -64,6 +73,7 @@ function show_statement_dialog(frm) {
                 customer: frm.doc.name,
                 from_date: vals.from_date,
                 to_date: vals.to_date,
+                cost_center: vals.cost_center || "",
             });
         },
     });

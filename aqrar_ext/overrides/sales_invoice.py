@@ -7,6 +7,8 @@ Hook-style handlers (payment terms, print display, price floor) live in
 
 import frappe
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
+from frappe import _
+from frappe.utils import flt
 
 
 class CustomSalesInvoice(SalesInvoice):
@@ -16,6 +18,35 @@ class CustomSalesInvoice(SalesInvoice):
 		# and return quantities are flipped negative there too, in
 		# utils/return_qty.flip_return_quantities.
 		super().validate()
+
+	def validate_multiple_billing(self, ref_dt, item_ref_dn, based_on):
+		"""Bill a Delivery Note by quantity, not by amount.
+
+		Aqrar's Delivery Note rows carry the item's COST as their rate
+		(overrides/delivery_note.set_valuation_rate), so an invoice at the selling
+		price was always "over billed" against it and every DN -> SI was blocked.
+		What still matters is not invoicing more than was delivered.
+		"""
+		if ref_dt != "Delivery Note":
+			return super().validate_multiple_billing(ref_dt, item_ref_dn, based_on)
+
+		billed = self.get_reference_wise_billed_amt(ref_dt, item_ref_dn, "qty")
+		over = []
+		for row in (billed or {}).values():
+			if abs(flt(row.billed_amt)) - abs(flt(row.ref_amt)) > 0.0001:
+				over.append(
+					_("Item {0} in row(s) {1}: {2} invoiced, {3} delivered").format(
+						frappe.bold(row.item_code),
+						", ".join(str(i) for i in row.rows),
+						flt(row.billed_amt),
+						flt(row.ref_amt),
+					)
+				)
+		if over:
+			frappe.throw(
+				_("More is invoiced than the Delivery Note delivered:") + "<br>" + "<br>".join(over),
+				title=_("Over Billing"),
+			)
 
 	def validate_update_after_submit(self):
 		"""Exempt ``selling_price_list`` from the after-submit change check.

@@ -165,8 +165,21 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
 
     // Shows what's already in the invoice grid so far, right inside this
     // popup — refreshed after every "+" click.
+    // Tick every result row whose item is already in the grid.
+    mark_added_rows($scope) {
+        var me = this;
+        var added = {};
+        (me.target.frm.doc[me.target.df.fieldname] || []).forEach(function (d) {
+            if (d[me.item_field]) added[d[me.item_field]] = true;
+        });
+        ($scope || this.dialog.fields_dict.results_area.$wrapper).find(".item-selector-row").each(function () {
+            $(this).find(".item-added-tick").toggle(!!added[$(this).data("aqrar-item")]);
+        });
+    }
+
     render_added_items() {
         var me = this;
+        this.mark_added_rows();
         var $wrap = this.dialog.fields_dict.results_area.$wrapper.find(".aqrar-added-items-bar");
         var rows = (me.target.frm.doc[me.target.df.fieldname] || []).filter(function (d) {
             return d[me.item_field];
@@ -219,9 +232,6 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
 
     search() {
         var me = this;
-        // Only the latest search may draw: a slower, older response landing after a
-        // newer one would repaint the list with stale rows.
-        var seq = (this._seq = (this._seq || 0) + 1);
         var item_name_txt = (this.dialog.fields_dict.item_name_txt.get_value() || "").trim();
 
         // txt stays empty on purpose. The Item query matches txt against the code,
@@ -276,6 +286,21 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
         // Only a slow search dims the list; a quick one just swaps, with no flash.
         clearTimeout(this._dim_timer);
         this._dim_timer = setTimeout(function () { $container.css("opacity", 0.55); }, 250);
+
+        // Leaving the Item Name box (e.g. to type a quantity) fires its change event
+        // again with the same text. Re-running that search rebuilt the rows and threw
+        // the quantity away while it was being typed, so an unchanged search is skipped.
+        var key = JSON.stringify([args, this.active_warehouse || ""]);
+        if (!args.start && key === this._last_search_key) {
+            clearTimeout(this._dim_timer);
+            return;
+        }
+        this._last_search_key = key;
+
+        // Only the latest search may draw: a slower, older response landing after a
+        // newer one would repaint the list with stale rows. Counted only for searches
+        // that actually run, or a skipped repeat would void the one still loading.
+        var seq = (this._seq = (this._seq || 0) + 1);
 
         frappe.link_search("Item", args, function (results) {
             if (seq !== me._seq) return;
@@ -372,6 +397,9 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                             ' title="' + __("Add") + '" style="border-radius:50%; width:24px; height:24px; padding:0;">' +
                             '+' +
                         '</button>' +
+                        // Shameer 2026-10-29: show which items are already in the grid.
+                        '<span class="item-added-tick text-success" title="' + __("Already added") + '"' +
+                            ' style="display:none; margin-left:6px; font-size:16px; font-weight:bold;">&#10004;</span>' +
                     '</span>' +
                 '</div>'
             ).appendTo($stage);
@@ -421,6 +449,8 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
             });
         });
 
+        this.mark_added_rows($stage);
+
         // Load More keeps the stock of the pages already on screen.
         if (!append || !this.stock_map) this.stock_map = {};
 
@@ -446,9 +476,13 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                 parent.find(".load-more").remove();
                 list.append($stage.children());
             } else {
+                // Quantities typed into the old rows (and the box being typed in) move
+                // to the same items in the new list instead of being dropped.
+                var typed = me.capture_typed_qty(parent);
                 parent.empty();
                 parent.append($header);
                 list = $stage.appendTo(parent);
+                me.restore_typed_qty(list, typed);
             }
             clearTimeout(me._dim_timer);
             parent.css("opacity", 1);
@@ -600,6 +634,34 @@ frappe.ui.form.ItemMultiSelector = class ItemMultiSelector {
                     }
                 });
             });
+    }
+
+    capture_typed_qty($parent) {
+        var typed = { qty: {}, focused: null, caret: null };
+        $parent.find(".item-selector-row").each(function () {
+            var $inp = $(this).find(".item-qty");
+            var code = $(this).data("aqrar-item");
+            if ($inp.val() !== "") typed.qty[code] = $inp.val();
+            if ($inp.is(document.activeElement)) {
+                typed.focused = code;
+                try { typed.caret = $inp[0].selectionStart; } catch (e) { /* number inputs */ }
+            }
+        });
+        return typed;
+    }
+
+    restore_typed_qty($list, typed) {
+        $list.find(".item-selector-row").each(function () {
+            var code = $(this).data("aqrar-item");
+            var $inp = $(this).find(".item-qty");
+            if (code in typed.qty) $inp.val(typed.qty[code]);
+            if (code === typed.focused) {
+                $inp.trigger("focus");
+                if (typed.caret != null) {
+                    try { $inp[0].setSelectionRange(typed.caret, typed.caret); } catch (e) { /* number inputs */ }
+                }
+            }
+        });
     }
 
     load_stock_info(item_codes, $scope) {
