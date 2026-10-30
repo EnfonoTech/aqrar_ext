@@ -229,6 +229,8 @@ doc_events = {
 override_whitelisted_methods = {
 	"frappe.printing.page.print.print.get_print_settings_to_show": "aqrar_ext.api.print_utils.get_print_settings_to_show",
 	"erpnext.stock.doctype.delivery_note.delivery_note.make_sales_invoice": "aqrar_ext.overrides.delivery_note.make_sales_invoice",
+	# Get Items From -> Sales Order: map_docs passes args 3rd; ERPNext 15.89/15.93 expects it 4th.
+	"erpnext.selling.doctype.sales_order.sales_order.make_sales_invoice": "aqrar_ext.overrides.sales_order.make_sales_invoice",
 }
 
 # Fixtures
